@@ -1,0 +1,62 @@
+[metadata]
+author = "Julien BAYLE"
+author_email = "jbayle@gmail.com"
+url = "https://github.com/julienbayle/qonto_fec"
+
+[project]
+name = "qonto_fec"
+description = "Create a valid FEC file directly from Qonto transactions"
+requires-python = ">=3.11"
+classifiers = ["License :: OSI Approved :: MIT License"]
+version = "0.0.1"
+
+dependencies = [
+    "python-dotenv",
+    "pytz"]
+
+[project.optional-dependencies]
+devel = [
+    "black",
+    "flake8",
+    "pytest"]
+
+[tool.black]
+line-length = 149
+target-version = ['py310']
+include = '\.pyi?$'
+exclude =  '''
+/(
+    \.eggs
+    | \.git
+    | \.mypy_cache
+    | \.pytest_cache
+    | \.vscode
+    | \.trunk
+    | \.tox
+    | __pycache__
+    | _build
+    | build
+    | dist
+    | venv
+    | data
+    | config
+)/
+'''
+
+[tool.mypy]
+python_version = 3.10
+show_error_codes = true
+pretty = true
+strict = true
+warn_redundant_casts = true
+warn_unused_configs = true
+namespace_packages = false
+
+[[tool.mypy.overrides]]
+module = ["pytz"]
+ignore_missing_imports = true
+
+[tool.flake8]
+max-line-length = 149
+ignore = ['E203', 'E266', 'E501', 'W503']
+max-complexity = 18
