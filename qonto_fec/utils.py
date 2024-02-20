@@ -4,7 +4,7 @@ import os
 from typing import  Any
 
 
-def save(dict: Any, name: str) -> None:
+def save(dict: Any, name: str, escape: bool = True) -> None:
     """
     Save a python dict as a CSV file in the data subfolder
     """
@@ -12,9 +12,10 @@ def save(dict: Any, name: str) -> None:
         os.makedirs('./data/')
     
     file_path = f"./data/{name.replace('/', '')}.txt"
+    quoting_mode = csv.QUOTE_MINIMAL if escape else csv.QUOTE_NONE
     with open(file_path, 'w', newline='') as csvFile:
         keys = dict[0].keys()
-        csvwriter = csv.DictWriter(csvFile, keys, delimiter='\t', quotechar='"', quoting=csv.QUOTE_MINIMAL, extrasaction="ignore")
+        csvwriter = csv.DictWriter(csvFile, keys, delimiter='\t', quotechar='"', quoting=quoting_mode, extrasaction="ignore")
         csvwriter.writeheader()
         csvwriter.writerows(dict)
 
