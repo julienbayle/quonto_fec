@@ -1,7 +1,7 @@
 import logging
 import os
 from dotenv import load_dotenv
-from typing import  Any, Dict
+from typing import Any
 from datetime import datetime
 from qonto_fec.qonto import get_transactions
 from qonto_fec.fec_accounting import FecAccounting
@@ -13,7 +13,9 @@ def run() -> None:
     siren = os.environ.get('company-siren')
     accounting_period_start_date = os.environ.get('accounting-period-start-date')
     accounting_period_end_date = os.environ.get('accounting-period-end-date')
-    
+    start_date = datetime.strptime(str(accounting_period_start_date), "%Y-%m-%d")
+    end_date = datetime.strptime(str(accounting_period_end_date), "%Y-%m-%d")
+
     # Get bank transactions
     bank_transactions = get_transactions(accounting_period_start_date, accounting_period_end_date)
     save(bank_transactions, f"{siren}BANK{str(accounting_period_end_date).replace('-','')}")
@@ -24,15 +26,16 @@ def run() -> None:
     for bank_transaction in bank_transactions:
         accounting.apply_accouting_rules(bank_transaction)
         if "fec_records" in bank_transaction:
-            accounting_ops.extend(bank_transaction["fec_records"])
+            for fec_record in bank_transaction["fec_records"]:
+                fec_record_when = datetime.strptime(fec_record["EcritureDate"], '%Y%m%d')
+                if fec_record_when >= start_date and fec_record_when <= end_date:
+                    accounting_ops.append(fec_record)
 
     # Compute accounting balances
     balances, balances_sum_by_group = FecAccounting.get_balances(accounting_ops)
 
     # Add final accouting to simulate accounts are stopped
     rcai = float(balances_sum_by_group['7']) + float(balances_sum_by_group['6'])
-    start_date = datetime.strptime(str(accounting_period_start_date), "%Y-%m-%d")
-    end_date = datetime.strptime(str(accounting_period_end_date), "%Y-%m-%d")
     nb_months = (end_date.year - start_date.year) * 12 + end_date.month - start_date.month
     fiscal_due = int(min(rcai, 42000*nb_months/12) * 0.15 + max(0, rcai-42000*nb_months/12) * 0.25)
 
@@ -57,9 +60,10 @@ def run() -> None:
     print("\n\n")
     print(f"(6+7)= {float(balances_sum_by_group['7']) + float(balances_sum_by_group['6']):.2f}")
     print(f"(1+4+5) = {float(balances_sum_by_group['5']) + float(balances_sum_by_group['4']) + float(balances_sum_by_group['1']):.2f}")
-  
+
     # Export accounting FEC
     save(accounting_ops, f"{siren}FEC{str(accounting_period_end_date).replace('-','')}", False)
+
 
 if __name__ == "__main__":
     logging.getLogger().setLevel(logging.INFO)

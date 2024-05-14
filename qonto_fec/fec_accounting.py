@@ -40,7 +40,7 @@ class FecAccounting:
     def _get_next_ecriture(self) -> int:
         self.fec_counter += 1
         return int(self.fec_counter)
-    
+
     def _get_next_reconciliation(self) -> str:
         i1 = self.reconciliation_counter % 26
         i2 = int(self.reconciliation_counter / 26)
@@ -49,7 +49,7 @@ class FecAccounting:
         if i2 > 25:
             raise Exception("Reconciliation max reached")
         return rec
-    
+
     def _get_supplier_code(self, supplier_lib: str) -> str:
         if supplier_lib not in self.accounting_suppliers_code:
             if len(self.accounting_suppliers_code) > 0:
@@ -57,7 +57,7 @@ class FecAccounting:
             else:
                 self.accounting_suppliers_code[supplier_lib] = 1
         return f"401{self.accounting_suppliers_code[supplier_lib]:05.0f}"
-    
+
     def _get_customer_code(self, customer_lib: str) -> str:
         if customer_lib not in self.accounting_customer_code:
             if len(self.accounting_customer_code) > 0:
@@ -69,7 +69,7 @@ class FecAccounting:
     def create_fec_record(self, transaction: Any, journal_code: str, account_code: str, credit: int, debit: int, ecriture: int, rec: str = '') -> None:
         note = str(transaction['note']).replace('\n', ' ').replace('\t', ' ')
         reference = str(transaction['reference'] if transaction['reference'] is not None and journal_code != 'VE' else '').replace('\n', ' ').replace('\t', ' ')
-        
+
         aux_num = ""
         if account_code[0:3] == "411":
             aux_num = self._get_customer_code(transaction['label']) 
@@ -120,15 +120,24 @@ class FecAccounting:
         else:
             transaction["fec_records"] = [fec_record]
 
+    def create_urssaf_fec_record(self, transaction: Any, num: int, mandatory: bool) -> None:
+        # Hack for ACRE computation in my personnal situation
+        tax_rate = 0.4029
+        if transaction["when"] < datetime.strptime("20240731", '%Y%m%d').replace(tzinfo=transaction["when"].tzinfo):
+            tax_rate = 0.167
+
+        self.create_fec_record(transaction, "OD", "646" if mandatory else "646100", 0, transaction["amount_excluding_vat"]*tax_rate, num)
+        self.create_fec_record(transaction, "OD", "4486", transaction["amount_excluding_vat"]*tax_rate, 0, num)
+
     def apply_accouting_rules(self, transaction: Any) -> None:
         """ Attach FEC records to the transaction in the fec_records fields"""
 
-        if "Capital social" == transaction["category"] and transaction["amount_excluding_vat"] > 0 and  transaction["vat"] == 0:
+        if "Capital social" == transaction["category"] and transaction["amount_excluding_vat"] > 0 and transaction["vat"] == 0:
             num = self._get_next_ecriture()
             self.create_fec_record(transaction, "BQ", "512", 0, transaction["amount_excluding_vat"], num)
             self.create_fec_record(transaction, "BQ", "1013", transaction["amount_excluding_vat"], 0, num)
 
-        if "CCA Julien BAYLE" == transaction["category"] and  transaction["vat"] == 0:
+        if "CCA Julien BAYLE" == transaction["category"] and transaction["vat"] == 0:
             num = self._get_next_ecriture()
             if transaction["amount_excluding_vat"] > 0:
                 self.create_fec_record(transaction, "BQ", "512", 0, transaction["amount_excluding_vat"], num)
@@ -151,8 +160,7 @@ class FecAccounting:
             num = self._get_next_ecriture()
             self.create_fec_record(transaction, "BQ", "512", transaction["amount_excluding_vat"], 0, num)
             self.create_fec_record(transaction, "BQ", "6411", 0, transaction["amount_excluding_vat"], num)
-            self.create_fec_record(transaction, "OD", "646", 0, transaction["amount_excluding_vat"]*0.45, num)
-            self.create_fec_record(transaction, "OD", "4486", transaction["amount_excluding_vat"]*0.45, 0, num)
+            self.create_urssaf_fec_record(transaction, num, True)
 
         if "TVA" in str(transaction["note"]) and 'DGFIP' in transaction['label'] and transaction["amount_excluding_vat"] < 0 and transaction["vat"] == 0:
             TVA08 = 0
@@ -192,8 +200,9 @@ class FecAccounting:
                 num = self._get_next_ecriture()
                 self.create_fec_record(transaction, "BQ", "512", transaction["amount_excluding_vat"] + transaction["vat"], 0, num, rec)
                 self.create_fec_record(transaction, "BQ", "401", 0, transaction["amount_excluding_vat"] + transaction["vat"], num, rec)
-                
-       
+                if account[0:3] == "641":
+                    self.create_urssaf_fec_record(transaction, num, False)
+
         if "fec_records" not in transaction:
             logging.getLogger().error(f"Transaction not supported yet : {transaction}")
 

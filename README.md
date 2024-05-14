@@ -75,6 +75,7 @@ Le résultat sera contrôlé et certifié par mon expert comptable début 2025.
 Le fichier FEC a été validé avec :
  - (FEC Expert)[https://www.fec-expert.fr/]
  - (Compta secure)[https://app.comptasecure.fr/]
+ - (SmartFEC)[https://smartfec-plus.cncc.fr/]
 
 Il est conforme à l’(arrêté du 29 Juillet 2013)[http://legifrance.gouv.fr/eli/arrete/2013/7/29/BUDE1315492A/jo/texte] portant modification des dispositions de l’article A. 47 A-1 du livre des procédures fiscales.
 Cet arrêté prévoit l’obligation pour les sociétés ayant une comptabilité informatisée de pouvoir fournir à l’administration fiscale un fichier regroupant l’ensemble des écritures comptables de l’exercice. Le format de ce fichier, appelé FEC, est définit dans l’arrêté. Le détail du format du FEC est spécifié dans le bulletin officiel des finances publiques (BOI-CF-IOR-60-40-20-2013121)[https://bofip.impots.gouv.fr/bofip/9028-PGP.html/identifiant%3DBOI-CF-IOR-60-40-20-20131213]
