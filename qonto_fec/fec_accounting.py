@@ -162,6 +162,13 @@ class FecAccounting:
             self.create_fec_record(transaction, "BQ", "6411", 0, transaction["amount_excluding_vat"], num)
             self.create_urssaf_fec_record(transaction, num, True)
 
+        if "treasury_and_interco" == transaction["category"]:
+            num = self._get_next_ecriture()
+            self.create_fec_record(transaction, "BQ", "512", transaction["amount_excluding_vat"], 0, num)
+            self.create_fec_record(transaction, "BQ", "580", 0, transaction["amount_excluding_vat"], num)
+            self.create_fec_record(transaction, "BQ1", "580", transaction["amount_excluding_vat"], 0, num)
+            self.create_fec_record(transaction, "BQ1", "512001", 0, transaction["amount_excluding_vat"], num)
+
         if "TVA" in str(transaction["note"]) and 'DGFIP' in transaction['label'] and transaction["amount_excluding_vat"] < 0 and transaction["vat"] == 0:
             TVA08 = 0
             TVA20 = 0
