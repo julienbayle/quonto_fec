@@ -37,11 +37,11 @@ def run() -> None:
     # Add final accouting to simulate accounts are stopped
     rcai = float(balances_sum_by_group['7']) + float(balances_sum_by_group['6'])
     nb_months = (end_date.year - start_date.year) * 12 + end_date.month - start_date.month
-    fiscal_due = int(min(rcai, 42000*nb_months/12) * 0.15 + max(0, rcai-42000*nb_months/12) * 0.25)
+    fiscal_due = int(min(rcai, 42500*nb_months/12) * 0.15 + max(0, rcai-42500*nb_months/12) * 0.25)
 
     num = accounting._get_next_ecriture()
     final_transaction: Any = {
-        "when": datetime.now(),
+        "when": end_date,
         "note": "Impôts sur bénéfices",
         "attachments": "",
         "reference": ""
@@ -58,8 +58,8 @@ def run() -> None:
               if str(balance_code)[0] == balance_group:
                   print(f"{balance_code} : {balance_amount:.2f}")
     print("\n\n")
+    print(f"(1+4+5) = {float(balances_sum_by_group['5']) + float(balances_sum_by_group['4']) + float(balances_sum_by_group['1']):.2f}") 
     print(f"(6+7)= {float(balances_sum_by_group['7']) + float(balances_sum_by_group['6']):.2f}")
-    print(f"(1+4+5) = {float(balances_sum_by_group['5']) + float(balances_sum_by_group['4']) + float(balances_sum_by_group['1']):.2f}")
 
     # Export accounting FEC
     save(accounting_ops, f"{siren}FEC{str(accounting_period_end_date).replace('-','')}", False)
