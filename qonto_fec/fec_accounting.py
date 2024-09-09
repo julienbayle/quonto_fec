@@ -5,7 +5,7 @@ from typing import Any, Dict, Tuple
 
 
 class FecAccounting:
-    
+
     fec_counter: int = 0
     reconciliation_counter: int = 0
 
@@ -132,11 +132,13 @@ class FecAccounting:
     def apply_accouting_rules(self, transaction: Any) -> None:
         """ Attach FEC records to the transaction in the fec_records fields"""
 
+        # Capital social (Catégorie = Capital social)
         if "Capital social" == transaction["category"] and transaction["amount_excluding_vat"] > 0 and transaction["vat"] == 0:
             num = self._get_next_ecriture()
             self.create_fec_record(transaction, "BQ", "512", 0, transaction["amount_excluding_vat"], num)
             self.create_fec_record(transaction, "BQ", "1013", transaction["amount_excluding_vat"], 0, num)
 
+        # Mouvement vers compte courrant associé (Catégorie = CCA Julien BAYLE)
         if "CCA Julien BAYLE" == transaction["category"] and transaction["vat"] == 0:
             num = self._get_next_ecriture()
             if transaction["amount_excluding_vat"] > 0:
@@ -146,6 +148,7 @@ class FecAccounting:
                 self.create_fec_record(transaction, "BQ", "512", transaction["amount_excluding_vat"], 0, num)
                 self.create_fec_record(transaction, "BQ", "4551", 0, transaction["amount_excluding_vat"], num)
 
+        # Enregistrement d'une vente (Catégorie = sales)
         if "sales" == transaction["category"] and transaction["amount_excluding_vat"] > 0:
             rec = self._get_next_reconciliation()
             num = self._get_next_ecriture()
@@ -156,12 +159,14 @@ class FecAccounting:
             self.create_fec_record(transaction, "BQ", "512", 0, transaction["amount_excluding_vat"] + transaction["vat"], num, rec)
             self.create_fec_record(transaction, "BQ", "411", transaction["amount_excluding_vat"] + transaction["vat"], 0, num, rec)
 
+        # Rémunération de gérance (Catégorie = Rémunération)
         if "Rémunération" == transaction["category"] and transaction["amount_excluding_vat"] < 0 and transaction["vat"] == 0:
             num = self._get_next_ecriture()
             self.create_fec_record(transaction, "BQ", "512", transaction["amount_excluding_vat"], 0, num)
             self.create_fec_record(transaction, "BQ", "6411", 0, transaction["amount_excluding_vat"], num)
             self.create_urssaf_fec_record(transaction, num, True)
 
+        # Placement vers un compte à terme (Catégorie = treasury_and_interco)
         if "treasury_and_interco" == transaction["category"]:
             num = self._get_next_ecriture()
             self.create_fec_record(transaction, "BQ", "512", transaction["amount_excluding_vat"], 0, num)
@@ -169,6 +174,7 @@ class FecAccounting:
             self.create_fec_record(transaction, "BQ1", "580", transaction["amount_excluding_vat"], 0, num)
             self.create_fec_record(transaction, "BQ1", "512001", 0, transaction["amount_excluding_vat"], num)
 
+        # Paiement effectif de la TVA (Label = DGFIP + note de ventilation)
         if "TVA" in str(transaction["note"]) and 'DGFIP' in transaction['label'] and transaction["amount_excluding_vat"] < 0 and transaction["vat"] == 0:
             TVA08 = 0
             TVA20 = 0
@@ -191,11 +197,12 @@ class FecAccounting:
                 raise Exception(f"Invalid TVA note for {transaction} [TVA08={TVA08}, TVA20={TVA20}, TVA22={TVA20}]")
 
             num = self._get_next_ecriture()
+            transaction['note'] = ""
             self.create_fec_record(transaction, "BQ", "512", transaction["amount_excluding_vat"], 0, num)
             self.create_fec_record(transaction, "BQ", "44571", 0, TVA08, num)
             self.create_fec_record(transaction, "BQ", "445661", TVA20 + TVA22, 0, num)
-            transaction['note'] = ""
 
+        # Autre opération codifiée dans accounting_plan.cfg, Section LabelToAccountForExpenses
         for label, account in self.accounting_plan['LabelToAccountForExpenses'].items():
             if label == transaction["category"] and transaction["amount_excluding_vat"] < 0:
                 rec = self._get_next_reconciliation()
@@ -212,7 +219,6 @@ class FecAccounting:
 
         if "fec_records" not in transaction:
             logging.getLogger().error(f"Transaction not supported yet : {transaction}")
-
 
     @staticmethod
     def get_balances(fec_records: Any) -> Tuple[Dict[str, Any], Dict[str, Any]]:
