@@ -23,7 +23,7 @@ def get_transactions(start: Optional[str], end: Optional[str]) -> Any:
     conn = HTTPSConnection("thirdparty.qonto.com")
 
     transactions = []
-    next_page = 1
+    next_page = 0
     while next_page is not None:
         url = f"/v2/transactions?iban={qonto_iban}&includes[]=vat_details&includes[]=labels&includes[]=attachments&page={next_page}"
         conn.request("GET", url, "{}", headers)
@@ -69,7 +69,7 @@ def prepare_and_validate(transaction: Any) -> Dict[str, Any]:
     if transaction["currency"] != "EUR":
         raise Exception(f"{name}: Only EUR currency is supported")
 
-    if transaction["attachment_required"] and len(transaction["attachments"]) == 0 and not transaction["attachment_lost"]:
+    if transaction["attachment_required"] and len(transaction["attachments"]) == 0 and not transaction["attachment_lost"] and transaction["operation_type"] != 'qonto_fee':
         raise Exception(f"{name}: Required attachment is missing")
 
     if len(transaction["label_ids"]) > 1:
