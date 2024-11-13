@@ -168,8 +168,8 @@ class FecAccounting:
             if transaction["vat"] != 0:
                     self.create_fec_record(transaction, "AC", "445661", 0, transaction["vat"], num, rec)
             num = self._get_next_ecriture()
-            self.create_fec_record(transaction, "BQ", "512", 0, transaction["amount_excluding_vat"] + transaction["vat"], num, rec)
-            self.create_fec_record(transaction, "BQ", "401", transaction["amount_excluding_vat"] + transaction["vat"], 0, num, rec)
+            self.create_fec_record(transaction, "BQ", "512", transaction["amount_excluding_vat"] + transaction["vat"], num, rec)
+            self.create_fec_record(transaction, "BQ", "401", 0, transaction["amount_excluding_vat"] + transaction["vat"], num, rec)
 
         # Rémunération de gérance (Catégorie = Rémunération)
         if "Rémunération" == transaction["category"] and transaction["amount_excluding_vat"] < 0 and transaction["vat"] == 0:

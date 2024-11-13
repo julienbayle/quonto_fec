@@ -23,7 +23,7 @@ def get_transactions(start: Optional[str], end: Optional[str]) -> Any:
     conn = HTTPSConnection("thirdparty.qonto.com")
 
     transactions = []
-    next_page = 0
+    next_page = 1
     while next_page is not None:
         url = f"/v2/transactions?iban={qonto_iban}&includes[]=vat_details&includes[]=labels&includes[]=attachments&page={next_page}"
         conn.request("GET", url, "{}", headers)
