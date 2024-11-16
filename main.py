@@ -64,6 +64,9 @@ def run() -> None:
     # Export accounting FEC
     save(accounting_ops, f"{siren}FEC{str(accounting_period_end_date).replace('-','')}", False)
 
+    # Export doc source reference
+    save(accounting.fec_docs.docs, f"{siren}DOCS{str(accounting_period_end_date).replace('-','')}", False)
+
 
 if __name__ == "__main__":
     logging.getLogger().setLevel(logging.INFO)

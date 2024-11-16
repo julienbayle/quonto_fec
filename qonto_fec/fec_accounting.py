@@ -2,12 +2,14 @@ import logging
 import holidays
 from datetime import datetime, timedelta
 from typing import Any, Dict, Tuple
+from .fec_doc import FecDoc
 
 
 class FecAccounting:
 
     fec_counter: int = 0
     reconciliation_counter: int = 0
+    fec_docs: FecDoc = FecDoc()
 
     accounting_plan: Dict[str, Dict[str, str]] = {
           'Journals': {},
@@ -104,7 +106,7 @@ class FecAccounting:
               "CompteLib": self.accounting_plan["Accounts"][account_code],
               "CompAuxNum": aux_num,
               "CompAuxLib": transaction['label'] if aux_num != "" else "",
-              "PieceRef": transaction["attachments"],
+              "PieceRef": self.fec_docs.add(transaction["attachments"], "Qonto"),
               "PieceDate": transaction["when"].strftime('%Y%m%d'),
               "EcritureLib": f"{reference}{' ' if len(reference)>0 else ''}{note}",
               "Debit": f"{abs(debit)/100.0:.2f}".replace(".", ","),
@@ -168,7 +170,7 @@ class FecAccounting:
             if transaction["vat"] != 0:
                     self.create_fec_record(transaction, "AC", "445661", 0, transaction["vat"], num, rec)
             num = self._get_next_ecriture()
-            self.create_fec_record(transaction, "BQ", "512", transaction["amount_excluding_vat"] + transaction["vat"], num, rec)
+            self.create_fec_record(transaction, "BQ", "512", transaction["amount_excluding_vat"] + transaction["vat"], 0, num, rec)
             self.create_fec_record(transaction, "BQ", "401", 0, transaction["amount_excluding_vat"] + transaction["vat"], num, rec)
 
         # Rémunération de gérance (Catégorie = Rémunération)
@@ -212,7 +214,8 @@ class FecAccounting:
             transaction['note'] = ""
             self.create_fec_record(transaction, "BQ", "512", transaction["amount_excluding_vat"], 0, num)
             self.create_fec_record(transaction, "BQ", "44571", 0, TVA08, num)
-            self.create_fec_record(transaction, "BQ", "445661", TVA20 + TVA22, 0, num)
+            if TVA20 + TVA22 != 0:
+                self.create_fec_record(transaction, "BQ", "445661", TVA20 + TVA22, 0, num)
 
         # Autre opération codifiée dans accounting_plan.cfg, Section LabelToAccountForExpenses
         for label, account in self.accounting_plan['LabelToAccountForExpenses'].items():
