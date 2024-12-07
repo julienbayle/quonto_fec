@@ -181,12 +181,19 @@ class FecAccounting:
             self.create_urssaf_fec_record(transaction, num, True)
 
         # Placement vers un compte à terme (Catégorie = treasury_and_interco)
-        if "treasury_and_interco" == transaction["category"]:
+        if "treasury_and_interco" == transaction["category"] and transaction["amount_excluding_vat"] < 0:
             num = self._get_next_ecriture()
             self.create_fec_record(transaction, "BQ", "512", transaction["amount_excluding_vat"], 0, num)
             self.create_fec_record(transaction, "BQ", "580", 0, transaction["amount_excluding_vat"], num)
             self.create_fec_record(transaction, "BQ1", "580", transaction["amount_excluding_vat"], 0, num)
             self.create_fec_record(transaction, "BQ1", "512001", 0, transaction["amount_excluding_vat"], num)
+        
+        if "treasury_and_interco" == transaction["category"] and transaction["amount_excluding_vat"] > 0:
+            num = self._get_next_ecriture()
+            self.create_fec_record(transaction, "BQ1", "512001", transaction["amount_excluding_vat"], 0, num)
+            self.create_fec_record(transaction, "BQ1", "580", 0, transaction["amount_excluding_vat"], num)
+            self.create_fec_record(transaction, "BQ", "580", transaction["amount_excluding_vat"], 0, num)
+            self.create_fec_record(transaction, "BQ", "512", 0, transaction["amount_excluding_vat"], num)
 
         # Paiement effectif de la TVA (Label = DGFIP + note de ventilation)
         if "TVA" in str(transaction["note"]) and 'DGFIP' in transaction['label'] and transaction["amount_excluding_vat"] < 0 and transaction["vat"] == 0:
@@ -219,7 +226,14 @@ class FecAccounting:
 
         # Autre opération codifiée dans accounting_plan.cfg, Section LabelToAccountForExpenses
         for label, account in self.accounting_plan['LabelToAccountForExpenses'].items():
-            if label == transaction["category"] and transaction["amount_excluding_vat"] < 0:
+
+            if label == transaction["category"] and account == "764" and transaction["amount_excluding_vat"] > 0:
+                rec = self._get_next_reconciliation()
+                num = self._get_next_ecriture()
+                self.create_fec_record(transaction, "BQ", "512", 0, transaction["amount_excluding_vat"], num, rec)
+                self.create_fec_record(transaction, "BQ", account, transaction["amount_excluding_vat"], 0, num, rec)
+
+            elif label == transaction["category"] and transaction["amount_excluding_vat"] < 0:
                 rec = self._get_next_reconciliation()
                 num = self._get_next_ecriture()
                 self.create_fec_record(transaction, "AC", "401", transaction["amount_excluding_vat"] + transaction["vat"], 0, num, rec)
