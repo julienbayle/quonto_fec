@@ -2,6 +2,7 @@ from typing import Dict, Any, List
 
 
 class FecDoc:
+    """ This class represents a FEC document (evidence piece) """
 
     docs : List[Dict[str, Any]] = []
     counter : int = 0

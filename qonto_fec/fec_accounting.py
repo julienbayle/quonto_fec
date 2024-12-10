@@ -69,8 +69,14 @@ class FecAccounting:
         return f"411{self.accounting_customer_code[customer_lib]:05.0f}"
 
     def create_fec_record(self, transaction: Any, journal_code: str, account_code: str, credit: int, debit: int, ecriture: int, rec: str = '') -> None:
-        note = str(transaction['note']).replace('\n', ' ').replace('\t', ' ')
-        reference = str(transaction['reference'] if transaction['reference'] is not None and journal_code != 'VE' else '').replace('\n', ' ').replace('\t', ' ')
+        if transaction['reference'] is not None and journal_code != 'VE':
+            ecritureLib = str(transaction['reference']).replace('\n', ' ').replace('\t', ' ')
+        elif transaction['note'] is not None and len(transaction['note']) > 3:
+            ecritureLib = str(transaction['note']).replace('\n', ' ').replace('\t', ' ')
+        elif transaction['operation_type'] == 'qonto_fee':
+            ecritureLib = "Frais bancaire Qonto"
+        else:
+            raise Exception(f"No note or reference for transaction {transaction}")
 
         aux_num = ""
         if account_code[0:3] == "411":
@@ -79,13 +85,15 @@ class FecAccounting:
             aux_num = self._get_supplier_code(transaction['label']) 
 
         # Nothing on saturday or sunday or holidays
-        if transaction["when"] in holidays.CountryHoliday('FR'):
-            transaction["when"] += timedelta(days=1)
-        day_of_week = transaction["when"].weekday()
-        if day_of_week > 4:
-            transaction["when"] += timedelta(days=(7-day_of_week))
+        if account_code[0:3] != "512":
             if transaction["when"] in holidays.CountryHoliday('FR'):
-                transaction["when"] += timedelta(days=1)
+                transaction["when"] -= timedelta(days=1)
+            
+            day_of_week = transaction["when"].weekday()
+            if day_of_week > 4:
+                transaction["when"] += timedelta(days=(-7+day_of_week))
+                if transaction["when"] in holidays.CountryHoliday('FR'):
+                    transaction["when"] -= timedelta(days=1)
 
         end_of_month = datetime(transaction["when"].year, transaction["when"].month, 1) + timedelta(days=32)
         end_of_month = end_of_month - timedelta(days=end_of_month.day + 1)
@@ -108,7 +116,7 @@ class FecAccounting:
               "CompAuxLib": transaction['label'] if aux_num != "" else "",
               "PieceRef": self.fec_docs.add(transaction["attachments"], "Qonto"),
               "PieceDate": transaction["when"].strftime('%Y%m%d'),
-              "EcritureLib": f"{reference}{' ' if len(reference)>0 else ''}{note}",
+              "EcritureLib": ecritureLib,
               "Debit": f"{abs(debit)/100.0:.2f}".replace(".", ","),
               "Credit": f"{abs(credit)/100.0:.2f}".replace(".", ","),
               "EcritureLet": rec if rec else None,
@@ -155,10 +163,10 @@ class FecAccounting:
             rec = self._get_next_reconciliation()
             num = self._get_next_ecriture()
             self.create_fec_record(transaction, "VE", "411", 0, transaction["amount_excluding_vat"] + transaction["vat"], num, rec)
-            self.create_fec_record(transaction, "VE", "706", transaction["amount_excluding_vat"], 0, num, rec)
-            self.create_fec_record(transaction, "VE", "44571", transaction["vat"], 0, num, rec)
+            self.create_fec_record(transaction, "VE", "706", transaction["amount_excluding_vat"], 0, num)
+            self.create_fec_record(transaction, "VE", "44571", transaction["vat"], 0, num)
             num = self._get_next_ecriture()
-            self.create_fec_record(transaction, "BQ", "512", 0, transaction["amount_excluding_vat"] + transaction["vat"], num, rec)
+            self.create_fec_record(transaction, "BQ", "512", 0, transaction["amount_excluding_vat"] + transaction["vat"], num)
             self.create_fec_record(transaction, "BQ", "411", transaction["amount_excluding_vat"] + transaction["vat"], 0, num, rec)
 
         # Enregistrement honoraires (comptable, ...)
@@ -178,6 +186,7 @@ class FecAccounting:
             num = self._get_next_ecriture()
             self.create_fec_record(transaction, "BQ", "512", transaction["amount_excluding_vat"], 0, num)
             self.create_fec_record(transaction, "BQ", "6411", 0, transaction["amount_excluding_vat"], num)
+            num = self._get_next_ecriture()
             self.create_urssaf_fec_record(transaction, num, True)
 
         # Placement vers un compte à terme (Catégorie = treasury_and_interco)
@@ -185,6 +194,7 @@ class FecAccounting:
             num = self._get_next_ecriture()
             self.create_fec_record(transaction, "BQ", "512", transaction["amount_excluding_vat"], 0, num)
             self.create_fec_record(transaction, "BQ", "580", 0, transaction["amount_excluding_vat"], num)
+            num = self._get_next_ecriture()
             self.create_fec_record(transaction, "BQ1", "580", transaction["amount_excluding_vat"], 0, num)
             self.create_fec_record(transaction, "BQ1", "512001", 0, transaction["amount_excluding_vat"], num)
         
@@ -192,6 +202,7 @@ class FecAccounting:
             num = self._get_next_ecriture()
             self.create_fec_record(transaction, "BQ1", "512001", transaction["amount_excluding_vat"], 0, num)
             self.create_fec_record(transaction, "BQ1", "580", 0, transaction["amount_excluding_vat"], num)
+            num = self._get_next_ecriture()
             self.create_fec_record(transaction, "BQ", "580", transaction["amount_excluding_vat"], 0, num)
             self.create_fec_record(transaction, "BQ", "512", 0, transaction["amount_excluding_vat"], num)
 
@@ -228,10 +239,9 @@ class FecAccounting:
         for label, account in self.accounting_plan['LabelToAccountForExpenses'].items():
 
             if label == transaction["category"] and account == "764" and transaction["amount_excluding_vat"] > 0:
-                rec = self._get_next_reconciliation()
                 num = self._get_next_ecriture()
-                self.create_fec_record(transaction, "BQ", "512", 0, transaction["amount_excluding_vat"], num, rec)
-                self.create_fec_record(transaction, "BQ", account, transaction["amount_excluding_vat"], 0, num, rec)
+                self.create_fec_record(transaction, "BQ", "512", 0, transaction["amount_excluding_vat"], num)
+                self.create_fec_record(transaction, "BQ", account, transaction["amount_excluding_vat"], 0, num)
 
             elif label == transaction["category"] and transaction["amount_excluding_vat"] < 0:
                 rec = self._get_next_reconciliation()
