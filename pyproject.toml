@@ -22,7 +22,7 @@ devel = [
 
 [tool.black]
 line-length = 149
-target-version = ['py310']
+target-version = ['py311']
 include = '\.pyi?$'
 exclude =  '''
 /(
@@ -44,7 +44,7 @@ exclude =  '''
 '''
 
 [tool.mypy]
-python_version = 3.10
+python_version = 3.11
 show_error_codes = true
 pretty = true
 strict = true
