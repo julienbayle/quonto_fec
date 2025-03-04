@@ -138,3 +138,6 @@ cython_debug/
 
 # Exports
 *.txt
+
+# Data
+config/misc*

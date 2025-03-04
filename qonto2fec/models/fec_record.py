@@ -56,10 +56,10 @@ class FecRecord(NamedTuple):
     ValidDate: str
     """Accounting validation date in 'YYYYMMDD' format."""
 
-    MontantDevise: Optional[float]
+    Montantdevise: Optional[float]
     """Amount in foreign currency (if applicable)."""
 
-    IDevise: Optional[str]
+    Idevise: Optional[str]
     """Currency code (e.g., 'USD' for US Dollar)."""
 
 
@@ -90,6 +90,6 @@ def create(when: datetime, label: str, journal: Journal, account: LedgerAccount,
         EcritureLet=ecriture_rec,
         DateLet=end_of_month.strftime("%Y%m%d") if ecriture_rec else None,
         ValidDate=end_of_month.strftime("%Y%m%d"),
-        MontantDevise=None,
-        IDevise=None,
+        Montantdevise=None,
+        Idevise=None,
     )

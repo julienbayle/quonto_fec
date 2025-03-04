@@ -20,16 +20,17 @@ def run() -> None:
     if not accounting_period_end_date:
         raise Exception("accounting_period_end_date must be defined")
 
-    # Get bank transactions
+    # Load bank transactions
     bank_transactions = QontoClient().get_transactions(siren, accounting_period_start_date, accounting_period_end_date)
+    logging.info(f"{len(bank_transactions)} brank transactions retrieved from Qonto")
 
     # Execute automatic accounting process from bank transactions
     accounting_service = AccountingService(siren, accounting_period_start_date, accounting_period_end_date)
     for bank_transaction in bank_transactions:
         accounting_service.doAccounting(bank_transaction)
 
-    # Special ops to close accounts
-    accounting_service.addProfitTax()
+    # Close accounting period properly
+    accounting_service.closeAccouting()
 
     # Compute and display balances
     accounting_service.displayBalances()

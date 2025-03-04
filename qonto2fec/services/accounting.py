@@ -1,9 +1,10 @@
 from datetime import datetime
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 from .evidence_db import EvidenceDB
 from .ledger_account_db import LedgerAccountDB
 from .journal_db import JournalDB
+from .misc_transaction_db import MiscellaneousTransactionDB
 from ..models.financial_transaction import FinancialTransaction
 from ..models.fec_record import FecRecord, create as CreateFecRecord
 from .file_utils import save_dict_to_csv
@@ -18,6 +19,7 @@ class AccountingService:
     journal_db: JournalDB
     evidence_db: EvidenceDB
     leadger_account_db: LedgerAccountDB
+    misc_transaction_db: MiscellaneousTransactionDB
 
     def __init__(self, siren: str, start_date: str, end_date: str) -> None:
         self.start_date = start_date
@@ -29,6 +31,10 @@ class AccountingService:
         self.evidence_db = EvidenceDB(f"{siren}EVIDENCES{str(end_date)}")
         self.leadger_account_db = LedgerAccountDB(f"{siren}ACCOUNTS")
 
+        # Load miscellaneous transactions
+        misc_path = f"config/misc_transactions{str(end_date.replace('-', ''))}.txt"
+        self.misc_transaction_db = MiscellaneousTransactionDB(misc_path, self.journal_db, self.leadger_account_db)
+
     def save(self) -> None:
         # Save FEC records
         save_dict_to_csv([r._asdict() for r in self.fec_records], self.fec_filename, False)
@@ -39,7 +45,10 @@ class AccountingService:
         # Save ledger accounts database
         self.leadger_account_db.save()
 
-    def _get_next_ecriture(self) -> int:
+    def _get_next_ecriture(self, when: Optional[datetime]) -> int:
+        if when:
+            self.addMiscFecRecordsBefore(when)
+
         self.fec_counter += 1
         return self.fec_counter
 
@@ -52,8 +61,10 @@ class AccountingService:
             raise Exception("Reconciliation limit reached")
         return rec
 
-    def create_fec_record(self, transaction: FinancialTransaction, journal_code: str, account: str,
-                          credit: int, debit: int, num: int, rec: str | None = None) -> None:
+    def create_fec_record_from_bank_transaction(self, transaction: FinancialTransaction,
+                                                journal_code: str, account: str,
+                                                credit: int, debit: int, num: int,
+                                                rec: str | None = None) -> None:
         # EcritureLib
         ecritureLib = ""
 
@@ -89,31 +100,31 @@ class AccountingService:
         # Sales
         if "sales" == transaction.category and transaction.amount_excluding_vat > 0:
             rec = self._get_next_reconciliation()
-            num = self._get_next_ecriture()
-            self.create_fec_record(transaction, "VE", "411", 0, transaction.amount_excluding_vat + transaction.vat, num, rec)
-            self.create_fec_record(transaction, "VE", "706", transaction.amount_excluding_vat, 0, num)
-            self.create_fec_record(transaction, "VE", "44571", transaction.vat, 0, num)
-            num = self._get_next_ecriture()
-            self.create_fec_record(transaction, "BQ", "512", 0, transaction.amount_excluding_vat + transaction.vat, num)
-            self.create_fec_record(transaction, "BQ", "411", transaction.amount_excluding_vat + transaction.vat, 0, num, rec)
+            num = self._get_next_ecriture(transaction.when)
+            self.create_fec_record_from_bank_transaction(transaction, "VE", "411", 0, transaction.amount_excluding_vat + transaction.vat, num, rec)
+            self.create_fec_record_from_bank_transaction(transaction, "VE", "706", transaction.amount_excluding_vat, 0, num)
+            self.create_fec_record_from_bank_transaction(transaction, "VE", "44571", transaction.vat, 0, num)
+            num = self._get_next_ecriture(transaction.when)
+            self.create_fec_record_from_bank_transaction(transaction, "BQ", "512", 0, transaction.amount_excluding_vat + transaction.vat, num)
+            self.create_fec_record_from_bank_transaction(transaction, "BQ", "411", transaction.amount_excluding_vat + transaction.vat, 0, num, rec)
 
         # Financial investment (starting)
         elif "treasury_and_interco" == transaction.category and transaction.amount_excluding_vat < 0 and transaction.vat == 0:
-            num = self._get_next_ecriture()
-            self.create_fec_record(transaction, "BQ", "512", -transaction.amount_excluding_vat, 0, num)
-            self.create_fec_record(transaction, "BQ", "580", 0, -transaction.amount_excluding_vat, num)
-            num = self._get_next_ecriture()
-            self.create_fec_record(transaction, "BQ1", "580", -transaction.amount_excluding_vat, 0, num)
-            self.create_fec_record(transaction, "BQ1", "512001", 0, -transaction.amount_excluding_vat, num)
+            num = self._get_next_ecriture(transaction.when)
+            self.create_fec_record_from_bank_transaction(transaction, "BQ", "512", -transaction.amount_excluding_vat, 0, num)
+            self.create_fec_record_from_bank_transaction(transaction, "BQ", "580", 0, -transaction.amount_excluding_vat, num)
+            num = self._get_next_ecriture(transaction.when)
+            self.create_fec_record_from_bank_transaction(transaction, "BQ1", "580", -transaction.amount_excluding_vat, 0, num)
+            self.create_fec_record_from_bank_transaction(transaction, "BQ1", "512001", 0, -transaction.amount_excluding_vat, num)
 
         # Financial investment (ending)
         elif "treasury_and_interco" == transaction.category and transaction.amount_excluding_vat > 0 and transaction.vat == 0:
-            num = self._get_next_ecriture()
-            self.create_fec_record(transaction, "BQ1", "512001", transaction.amount_excluding_vat, 0, num)
-            self.create_fec_record(transaction, "BQ1", "580", 0, transaction.amount_excluding_vat, num)
-            num = self._get_next_ecriture()
-            self.create_fec_record(transaction, "BQ", "580", transaction.amount_excluding_vat, 0, num)
-            self.create_fec_record(transaction, "BQ", "512", 0, transaction.amount_excluding_vat, num)
+            num = self._get_next_ecriture(transaction.when)
+            self.create_fec_record_from_bank_transaction(transaction, "BQ1", "512001", transaction.amount_excluding_vat, 0, num)
+            self.create_fec_record_from_bank_transaction(transaction, "BQ1", "580", 0, transaction.amount_excluding_vat, num)
+            num = self._get_next_ecriture(transaction.when)
+            self.create_fec_record_from_bank_transaction(transaction, "BQ", "580", transaction.amount_excluding_vat, 0, num)
+            self.create_fec_record_from_bank_transaction(transaction, "BQ", "512", 0, transaction.amount_excluding_vat, num)
 
         # VAT
         elif (
@@ -142,50 +153,51 @@ class AccountingService:
             if TVA08 - TVA20 - TVA22 != -transaction.amount_excluding_vat:
                 raise Exception(f"Invalid TVA note for {transaction} [TVA08={TVA08}, TVA20={TVA20}, TVA22={TVA22}]")
 
-            num = self._get_next_ecriture()
+            num = self._get_next_ecriture(transaction.when)
             # Remove TVA note
             transaction.note = ""
-            self.create_fec_record(transaction, "BQ", "512", -transaction.amount_excluding_vat, 0, num)
-            self.create_fec_record(transaction, "BQ", "44571", 0, TVA08, num)
+            self.create_fec_record_from_bank_transaction(transaction, "BQ", "512", -transaction.amount_excluding_vat, 0, num)
+            self.create_fec_record_from_bank_transaction(transaction, "BQ", "44571", 0, TVA08, num)
             if TVA20 + TVA22 != 0:
-                self.create_fec_record(transaction, "BQ", "445661", TVA20 + TVA22, 0, num)
+                self.create_fec_record_from_bank_transaction(transaction, "BQ", "445661", TVA20 + TVA22, 0, num)
 
         else:
             for account in self.leadger_account_db.accounts:
                 if transaction.category in account.thirdparty_names_or_quonto_categories:
                     # Exception : financial revenue and capital increase
                     if account.code in ["764", "1013", "4551"] and transaction.amount_excluding_vat > 0 and transaction.vat == 0:
-                        num = self._get_next_ecriture()
-                        self.create_fec_record(transaction, "BQ", "512", 0, transaction.amount_excluding_vat, num)
-                        self.create_fec_record(transaction, "BQ", account.code, transaction.amount_excluding_vat, 0, num)
+                        num = self._get_next_ecriture(transaction.when)
+                        self.create_fec_record_from_bank_transaction(transaction, "BQ", "512", 0, transaction.amount_excluding_vat, num)
+                        self.create_fec_record_from_bank_transaction(transaction, "BQ", account.code, transaction.amount_excluding_vat, 0, num)
 
                     # Exception : owner revenue
                     elif account.code in ["6411", "4551", "4486"] and transaction.amount_excluding_vat < 0 and transaction.vat == 0:
-                        num = self._get_next_ecriture()
-                        self.create_fec_record(transaction, "BQ", "512", -transaction.amount_excluding_vat, 0, num)
-                        self.create_fec_record(transaction, "BQ", account.code, 0, -transaction.amount_excluding_vat, num)
+                        num = self._get_next_ecriture(transaction.when)
+                        self.create_fec_record_from_bank_transaction(transaction, "BQ", "512", -transaction.amount_excluding_vat, 0, num)
+                        self.create_fec_record_from_bank_transaction(transaction, "BQ", account.code, 0, -transaction.amount_excluding_vat, num)
 
                     # Exception : Taxes (CET)
                     elif account.code == "63511" and transaction.amount_excluding_vat < 0 and transaction.vat == 0:
                         rec = self._get_next_reconciliation()
-                        num = self._get_next_ecriture()
-                        self.create_fec_record(transaction, "OD", "447", -transaction.amount_excluding_vat, 0, num, rec)
-                        self.create_fec_record(transaction, "OD", account.code, 0, -transaction.amount_excluding_vat, num)
-                        num = self._get_next_ecriture()
-                        self.create_fec_record(transaction, "BQ", "512", -transaction.amount_excluding_vat, 0, num)
-                        self.create_fec_record(transaction, "BQ", "447", 0, -transaction.amount_excluding_vat, num, rec)
+                        num = self._get_next_ecriture(transaction.when)
+                        self.create_fec_record_from_bank_transaction(transaction, "OD", "447", -transaction.amount_excluding_vat, 0, num, rec)
+                        self.create_fec_record_from_bank_transaction(transaction, "OD", account.code, 0, -transaction.amount_excluding_vat, num)
+                        num = self._get_next_ecriture(transaction.when)
+                        self.create_fec_record_from_bank_transaction(transaction, "BQ", "512", -transaction.amount_excluding_vat, 0, num)
+                        self.create_fec_record_from_bank_transaction(transaction, "BQ", "447", 0, -transaction.amount_excluding_vat, num, rec)
 
                     # Expenses
                     elif account.code[0:1] == "6" and transaction.amount_excluding_vat < 0:
+                        amount = -transaction.amount_excluding_vat - transaction.vat
                         rec = self._get_next_reconciliation()
-                        num = self._get_next_ecriture()
-                        self.create_fec_record(transaction, "AC", "401", -transaction.amount_excluding_vat - transaction.vat, 0, num, rec)
-                        self.create_fec_record(transaction, "AC", account.code, 0, -transaction.amount_excluding_vat, num)
+                        num = self._get_next_ecriture(transaction.when)
+                        self.create_fec_record_from_bank_transaction(transaction, "AC", "401", amount, 0, num, rec)
+                        self.create_fec_record_from_bank_transaction(transaction, "AC", account.code, 0, -transaction.amount_excluding_vat, num)
                         if transaction.vat != 0:
-                            self.create_fec_record(transaction, "AC", "445661", 0, -transaction.vat, num)
-                        num = self._get_next_ecriture()
-                        self.create_fec_record(transaction, "BQ", "512", -transaction.amount_excluding_vat - transaction.vat, 0, num)
-                        self.create_fec_record(transaction, "BQ", "401", 0, -transaction.amount_excluding_vat - transaction.vat, num, rec)
+                            self.create_fec_record_from_bank_transaction(transaction, "AC", "445661", 0, -transaction.vat, num)
+                        num = self._get_next_ecriture(transaction.when)
+                        self.create_fec_record_from_bank_transaction(transaction, "BQ", "512", amount, 0, num)
+                        self.create_fec_record_from_bank_transaction(transaction, "BQ", "401", 0, amount, num, rec)
 
         if len(transaction.fec_records) == 0:
             raise RuntimeError(f"Transaction not supported yet, please create new rules or update configuration : {transaction}")
@@ -201,9 +213,29 @@ class AccountingService:
             mandatory = len([r for r in transaction.fec_records if r.CompteNum == "6411"]) > 0
             amount_due = int(abs(transaction.amount_excluding_vat * tax_rate))
 
-            num = self._get_next_ecriture()
-            self.create_fec_record(transaction, "OD", "646" if mandatory else "646100", 0, amount_due, num)
-            self.create_fec_record(transaction, "OD", "4486", amount_due, 0, num)
+            num = self._get_next_ecriture(transaction.when)
+            self.create_fec_record_from_bank_transaction(transaction, "OD", "646" if mandatory else "646100", 0, amount_due, num)
+            self.create_fec_record_from_bank_transaction(transaction, "OD", "4486", amount_due, 0, num)
+
+    def addMiscFecRecordsBefore(self, when: Optional[datetime]) -> None:
+        misc_transactions = self.misc_transaction_db.getUntil(when)
+        num = None
+        for misc_transaction in misc_transactions:
+            for entry in misc_transaction.Entries:
+                if num is None:
+                    num = self._get_next_ecriture(None)
+                fec_record = CreateFecRecord(
+                    when=misc_transaction.EcritureDate,
+                    label=misc_transaction.EcritureLib,
+                    journal=entry.Journal,
+                    account=entry.Account,
+                    evidences=[self.evidence_db.get_or_add("GoogleDrive", misc_transaction.PieceRef)],
+                    credit=entry.Credit,
+                    debit=entry.Debit,
+                    ecriture_num=num,
+                    ecriture_rec=None
+                )
+                self.fec_records.append(fec_record)
 
     def computeBalances(self) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
@@ -227,7 +259,10 @@ class AccountingService:
 
         return balances, balances_sum_by_group
 
-    def addProfitTax(self) -> None:
+    def closeAccouting(self) -> None:
+
+        # Add remaining miscellaneous transaction
+        self.addMiscFecRecordsBefore(None)
 
         # Initial balances
         _, balances_sum_by_group = self.computeBalances()
@@ -247,6 +282,8 @@ class AccountingService:
         if tax_account is None:
             raise RuntimeError("Account 6951 is missing in accounting configuration")
 
+        last_num = self._get_next_ecriture(None)
+
         self.fec_records.append(CreateFecRecord(
             when=end_date,
             label="Impôts sur bénéfices",
@@ -254,7 +291,7 @@ class AccountingService:
             account=tax_account,
             credit=0,
             debit=fiscal_due,
-            ecriture_num=self._get_next_ecriture()))
+            ecriture_num=last_num))
 
         dgfip_account = self.leadger_account_db.get_by_code("444")
         if dgfip_account is None:
@@ -267,7 +304,7 @@ class AccountingService:
               account=dgfip_account,
               credit=fiscal_due,
               debit=0,
-              ecriture_num=self._get_next_ecriture()))
+              ecriture_num=last_num))
 
     def displayBalances(self) -> None:
         """Display balances to the console"""

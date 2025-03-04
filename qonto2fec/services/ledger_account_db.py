@@ -13,8 +13,7 @@ class LedgerAccountDB:
 
     def __init__(self, db_name: str) -> None:
         self.accounts = [LedgerAccount(**a) for a in read_dict_from_csv(db_name)]
-        if len(self.accounts) == 0:
-            self.loadDefaultAccounts()
+        self.loadDefaultAccounts()
 
         self.db_name = db_name
 
@@ -88,6 +87,7 @@ class LedgerAccountDB:
         return None
 
     def loadDefaultAccounts(self) -> None:
+        """Adds or update the missing account defined in the accouting.cfg file"""
         with open("config/accounting.cfg", "r") as file:
             config_text = file.read()
 
@@ -100,15 +100,18 @@ class LedgerAccountDB:
                 account_section = "Account" in line
             elif account_section:
                 parts = [part for part in line.split("\t") if part.strip() != ""]
-                print(parts)
                 if len(parts) == 2:
                     account = LedgerAccount(parts[0], parts[1])
-                    self.accounts.append(account)
                 elif len(parts) == 3:
                     account = LedgerAccount(parts[0], parts[1], parts[2])
-                    self.accounts.append(account)
                 else:
                     ValueError(f"Incorrect line in accounting_plan.cfg file : {line}")
+
+                existing_account = self.get_by_code(account.code)
+                if not existing_account:
+                    self.accounts.append(account)
+                else:
+                    existing_account.name = account.name
 
     def save(self) -> None:
         save_dict_to_csv([a._asdict() for a in self.accounts], self.db_name, False)
