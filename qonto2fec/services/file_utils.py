@@ -28,7 +28,7 @@ def save_dict_to_csv(data: List[Dict[str, Any]], name: str, escape: bool = True)
         csvwriter.writeheader()
         csvwriter.writerows(data)
 
-    logging.getLogger().info(f"{file_path} has been successfully saved ({count} line{'s' if count > 1 else ''})")
+    logging.info(f"{file_path} has been successfully saved ({count} line{'s' if count > 1 else ''})")
 
 
 def read_dict_from_csv(name: str, escape: bool = True) -> List[Dict[str, Any]]:
@@ -45,8 +45,8 @@ def read_dict_from_csv(name: str, escape: bool = True) -> List[Dict[str, Any]]:
                 data.append(row)
 
         count = len(data)
-        logging.getLogger().info(f"{file_path} has been successfully loaded ({count} line{'s' if count > 1 else ''})")
+        logging.info(f"{file_path} has been successfully loaded ({count} line{'s' if count > 1 else ''})")
     else:
-        logging.getLogger().info(f"{file_path} does not exists, starting with an empty database")
+        logging.info(f"{file_path} does not exists, starting with an empty database")
 
     return data

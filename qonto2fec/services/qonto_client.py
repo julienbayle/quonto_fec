@@ -7,6 +7,7 @@ from http.client import HTTPSConnection
 from operator import attrgetter
 from typing import Dict, List
 from ..models.financial_transaction import FinancialTransaction
+from ..models.invoice import Invoice, CLIENT_INVOICE
 
 
 class QontoClient:
@@ -52,7 +53,7 @@ class QontoClient:
         else:
             raise ValueError("Technical error - Date is not a datime after conversion")
 
-    def get_transactions(self, siren: str, start_date: str, end_date: str) -> List[FinancialTransaction]:
+    def getTransactions(self, start_date: str, end_date: str) -> List[FinancialTransaction]:
         """
         Get all account transactions from Qonto Bank between two dates
 
@@ -84,7 +85,7 @@ class QontoClient:
                     continue
 
                 if transaction["status"] != "completed":
-                    logging.getLogger().warning(f"Transaction is not yet completed, this could lead to bad accounting results : {transaction}")
+                    logging.warning(f"Transaction is not yet completed, this could lead to bad accounting results : {transaction}")
 
                 if transaction["status"] == "completed":
                     transaction["settled_at"] = self._conv_date_from_utc_to_local(transaction["settled_at"])
@@ -97,3 +98,42 @@ class QontoClient:
         transactions = sorted(transactions, key=attrgetter("when"))
 
         return transactions
+
+    def getClientInvoices(self, start_date: str, end_date: str) -> List[Invoice]:
+        start_date_t = self._conv_date_from_utc_to_local(start_date)
+        end_date_t = self._conv_date_from_utc_to_local(end_date)
+        end_date_t += timedelta(hours=23, minutes=59)
+
+        created_at_from = f"filter[created_at_from]={start_date_t.strftime('%Y-%m-%dT%H:%M:%S.%fZ')}"
+        created_at_to = f"filter[created_at_to]={end_date_t.strftime('%Y-%m-%dT%H:%M:%S.%fZ')}"
+
+        invoices = []
+        next_page = 1
+        while next_page is not None:
+            url = f"/v2/client_invoices?{created_at_from}&{created_at_to}&page={next_page}"
+            self.conn.request("GET", url, "{}", self.headers)
+            response = self.conn.getresponse()
+            if response.status != 200:
+                print(response.read())
+                raise Exception(response.status, response.reason)
+
+            data = response.read()
+            raw_invoices = json.loads(data.decode("utf-8"))
+            next_page = raw_invoices["meta"]["next_page"]
+
+            for raw_invoice in raw_invoices["client_invoices"]:
+                invoices.append(Invoice(
+                    type=CLIENT_INVOICE,
+                    source_name="Qonto",
+                    source_id=raw_invoice["id"],
+                    source_attachment_id=raw_invoice["attachment_id"],
+                    when=self._conv_date_from_utc_to_local(raw_invoice["issue_date"]),
+                    number=raw_invoice["number"],
+                    total_amount_cents=raw_invoice["total_amount_cents"],
+                    amount_vat_cent=raw_invoice["vat_amount_cents"],
+                    thirdparty_name=raw_invoice["client"]["name"]
+                ))
+
+        invoices = sorted(invoices, key=attrgetter("when"))
+
+        return invoices

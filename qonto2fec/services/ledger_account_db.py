@@ -18,6 +18,7 @@ class LedgerAccountDB:
         self.db_name = db_name
 
     def get_or_create(self, code: str, name: str) -> LedgerAccount:
+        name = name.upper()
         if code is None or len(code) < 3:
             raise ValueError(f"Invalid code for a ledger account : {code}")
 
@@ -37,11 +38,11 @@ class LedgerAccountDB:
 
             # Create new
             if name is not None and name.strip() != "":
-                new_code = int(code[0:3]) * 1000 + len([c for c in self.accounts if c.code[0:3] == code[0:3]]) + 1
+                new_code = int(code[0:3]) * 1000 + len([c for c in self.accounts if c.code[0:3] in ["401", "411"] and len(c.code) > 3]) + 1
                 main_account = self.get_by_code(code[0:3])
                 if main_account is None:
                     raise ValueError("Missing default account for supplier or customer")
-                return self.add(LedgerAccount(str(new_code), main_account.name, name))
+                return self._add(LedgerAccount(str(new_code), main_account.name, name))
 
         else:
             # Search by code
@@ -57,12 +58,12 @@ class LedgerAccountDB:
 
             # Create new
             if name is None or name.strip() != "":
-                return self.add(LedgerAccount(code, name))
+                return self._add(LedgerAccount(code, name))
 
         raise ValueError("Name is mandatory to create a new ledger account")
 
-    def add(self, account: LedgerAccount) -> LedgerAccount:
-        logging.getLogger().info(f"New ledger account created {account.code} - {account.name}")
+    def _add(self, account: LedgerAccount) -> LedgerAccount:
+        logging.info(f"New ledger account created {account.code} - {account.name} - {account.thirdparty_names_or_quonto_categories}")
         self.accounts.append(account)
         return account
 
@@ -73,11 +74,20 @@ class LedgerAccountDB:
 
         return None
 
+    def get_by_code_or_fail(self, code: str) -> LedgerAccount:
+        account = self.get_by_code(code)
+        if account:
+            return account
+        else:
+            raise ValueError(f"No ledger account with code {code}")
+
     def get_by_name(self, name: str, code: str = "") -> Optional[LedgerAccount]:
+        name = name.upper()
+
         # Supplier or customer
         if code[0:3] in ["401", "411"]:
             for account in self.accounts:
-                if account.code[0:3] == code[0:3] and name in account.thirdparty_names_or_quonto_categories:
+                if name in account.thirdparty_names_or_quonto_categories:
                     return account
         else:
             for account in self.accounts:
@@ -109,7 +119,7 @@ class LedgerAccountDB:
 
                 existing_account = self.get_by_code(account.code)
                 if not existing_account:
-                    self.accounts.append(account)
+                    self._add(account)
                 else:
                     existing_account.name = account.name
 

@@ -1,11 +1,11 @@
 from datetime import datetime, timedelta
-from typing import NamedTuple, Optional, List
+from typing import Optional, Dict
 from .ledger_account import LedgerAccount
 from .evidence import Evidence
 from .journal import Journal
 
 
-class FecRecord(NamedTuple):
+class FecRecord:
     """Represents a line in the French FEC (Fichier des Écritures Comptables) file."""
 
     JournalCode: str
@@ -56,40 +56,86 @@ class FecRecord(NamedTuple):
     ValidDate: str
     """Accounting validation date in 'YYYYMMDD' format."""
 
-    Montantdevise: Optional[float]
+    Montantdevise: Optional[str]
     """Amount in foreign currency (if applicable)."""
 
     Idevise: Optional[str]
     """Currency code (e.g., 'USD' for US Dollar)."""
 
+    def __init__(self, when: datetime, label: str, journal: Journal, account: LedgerAccount, credit_cent: int, debit_cent: int, ecriture_num: int,
+                 evidence: Evidence | None = None, ecriture_rec: str | None = None) -> None:
 
-def create(when: datetime, label: str, journal: Journal, account: LedgerAccount, credit: int, debit: int, ecriture_num: int,
-           evidences: List[Evidence] | None = None, ecriture_rec: str | None = None) -> FecRecord:
+        # Compute lettrage datetime (always last open day of the month)
+        end_of_month = datetime(when.year, when.month, 1) + timedelta(days=32)
+        end_of_month = end_of_month - timedelta(days=end_of_month.day + 1)
+        day_of_week = end_of_month.weekday()
+        if day_of_week > 4:
+            end_of_month -= timedelta(days=(day_of_week-4))
 
-    # Compute lettrage datetime (always last open day of the month)
-    end_of_month = datetime(when.year, when.month, 1) + timedelta(days=32)
-    end_of_month = end_of_month - timedelta(days=end_of_month.day + 1)
-    day_of_week = end_of_month.weekday()
-    if day_of_week > 4:
-        end_of_month -= timedelta(days=(day_of_week-4))
+        self.JournalCode = journal.code
+        self.JournalLib = journal.label
+        self.EcritureNum = str(ecriture_num)
+        self.EcritureDate = when.strftime("%Y%m%d")
+        self.CompteNum = account.fec_compte_num()
+        self.CompteLib = account.fec_compte_lib()
+        self.CompAuxNum = account.fec_compte_aux_num()
+        self.CompAuxLib = account.fec_compte_aux_lib()
+        self.PieceRef = str(evidence.number) if evidence else ""
+        self.PieceDate = evidence.when.strftime("%Y%m%d") if evidence else ""
+        self.EcritureLib = label
+        self.Debit = FecRecord.centToFrenchFecFormat(debit_cent)
+        self.Credit = FecRecord.centToFrenchFecFormat(credit_cent)
+        self.EcritureLet = ecriture_rec
+        self.DateLet = end_of_month.strftime("%Y%m%d") if ecriture_rec else None
+        self.ValidDate = datetime(when.year, 12, 31).strftime("%Y%m%d")
+        self.Montantdevise = None
+        self.Idevise = None
 
-    return FecRecord(
-        JournalCode=journal.code,
-        JournalLib=journal.label,
-        EcritureNum=str(ecriture_num),
-        EcritureDate=when.strftime("%Y%m%d"),
-        CompteNum=account.fec_compte_num(),
-        CompteLib=account.fec_compte_lib(),
-        CompAuxNum=account.fec_compte_aux_num(),
-        CompAuxLib=account.fec_compte_aux_lib(),
-        PieceRef=",".join([str(evidence.number) for evidence in evidences]) if evidences is not None and len(evidences) > 0 else "",
-        PieceDate=when.strftime("%Y%m%d"),
-        EcritureLib=label,
-        Debit=f"{debit/100.0:.2f}".replace(".", ","),
-        Credit=f"{credit/100.0:.2f}".replace(".", ","),
-        EcritureLet=ecriture_rec,
-        DateLet=end_of_month.strftime("%Y%m%d") if ecriture_rec else None,
-        ValidDate=end_of_month.strftime("%Y%m%d"),
-        Montantdevise=None,
-        Idevise=None,
-    )
+    @staticmethod
+    def centToFrenchFecFormat(amount: int) -> str:
+        if amount <= -100:
+            return f"{str(amount)[:-2]},{str(amount)[-2:]}"
+        elif -10 <= amount < -100:
+            return f"-0,{abs(amount)}"
+        elif 0 < amount < 10:
+            return f"-0,0{abs(amount)}"
+        elif amount == 0:
+            return "0,00"
+        elif 0 < amount < 10:
+            return f"0,0{amount}"
+        elif 10 <= amount < 100:
+            return f"0,{amount}"
+        else:
+            return f"{str(amount)[:-2]},{str(amount)[-2:]}"
+
+    @staticmethod
+    def frenchFecFormatToCent(amount: str) -> int:
+        return int(amount.replace(",", ""))
+
+    def getCreditAsCent(self) -> int:
+        return FecRecord.frenchFecFormatToCent(self.Credit)
+
+    def getDebitAsCent(self) -> int:
+        return FecRecord.frenchFecFormatToCent(self.Debit)
+
+    def _asdict(self) -> Dict[str, str]:
+        return {
+            "JournalCode": self.JournalCode,
+            "JournalLib": self.JournalLib,
+            "EcritureNum": self.EcritureNum,
+            "EcritureDate": self.EcritureDate,
+            "CompteNum": self.CompteNum,
+            "CompteLib": self.CompteLib,
+            "CompAuxNum": "" if not self.CompAuxNum else self.CompAuxNum,
+            "CompAuxLib": "" if not self.CompAuxLib else self.CompAuxLib,
+            "PieceRef": self.PieceRef,
+            "PieceDate": self.PieceDate,
+            "EcritureLib": self.EcritureLib,
+            "Debit": self.Debit,
+            "Credit": self.Credit,
+            "EcritureLet": "" if not self.EcritureLet else self.EcritureLet,
+            "DateLet": "" if not self.DateLet else self.DateLet,
+            "ValidDate": self.ValidDate,
+            "Montantdevise": "" if not self.Montantdevise else self.Montantdevise,
+            "Idevise": "" if not self.Idevise else self.Idevise,
+        }

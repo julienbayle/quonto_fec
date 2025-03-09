@@ -34,6 +34,7 @@ class MiscellaneousTransactionDB:
         current_transaction = None
         ecriture_lib = None
         ecriture_date = None
+        third_party_name = None
         entries = []
 
         for linenum, line in enumerate(lines):
@@ -50,6 +51,7 @@ class MiscellaneousTransactionDB:
                     current_transaction = None
                     ecriture_lib = None
                     ecriture_date = None
+                    third_party_name = None
                     entries = []  # Reset operations for the new transaction
 
                 line = re.sub('[\t]+', '\t', line.replace("==", ""))
@@ -70,10 +72,10 @@ class MiscellaneousTransactionDB:
                         raise ValueError(f"Unexpected date format at line {linenum} : {line}") from e
 
                 else:  # Third line: PieceRef, PieceDate
-                    if len(parts) == 2:
+                    if 2 <= len(parts) <= 3:
                         piece_ref = parts[0]
-
                         piece_date_txt = parts[1]
+                        third_party_name = parts[2] if len(parts) == 3 else None
                         try:
                             piece_date = datetime.strptime(piece_date_txt, "%d/%m/%Y")
                         except Exception as e:
@@ -99,7 +101,10 @@ class MiscellaneousTransactionDB:
                     if not journal:
                         raise ValueError(f"Unexpected journal code at line {linenum} : {parts}")
 
-                    account = self.accounts_db.get_by_code(parts[1])
+                    if not third_party_name or parts[1][0:3] not in ["401", "411"]:
+                        account = self.accounts_db.get_by_code(parts[1])
+                    else:
+                        account = self.accounts_db.get_or_create(parts[1], third_party_name)
                     if not account:
                         raise ValueError(f"Unexpected account code at line {linenum} : {parts}")
 
