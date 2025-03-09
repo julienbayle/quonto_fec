@@ -7,7 +7,7 @@ from .ledger_account_db import LedgerAccountDB
 from .journal_db import JournalDB
 from .misc_transaction_db import MiscellaneousTransactionDB
 from ..models.financial_transaction import FinancialTransaction
-from ..models.invoice import Invoice
+from ..models.invoice import Invoice, CLIENT_CREDIT, CLIENT_INVOICE
 from ..models.fec_record import FecRecord
 from .file_utils import save_dict_to_csv
 
@@ -277,8 +277,8 @@ class AccountingService:
                     journal=self.journal_db.get_by_code('VE'),
                     account=self.leadger_account_db.get_or_create('411', invoice.thirdparty_name),
                     evidence=self.evidence_db.get_or_add("Qonto", invoice.source_attachment_id, invoice.when),
-                    credit_cent=0,
-                    debit_cent=invoice.total_amount_cent,
+                    credit_cent=abs(invoice.total_amount_cent) if invoice.type == CLIENT_CREDIT else 0,
+                    debit_cent=invoice.total_amount_cent if invoice.type == CLIENT_INVOICE else 0,
                     ecriture_num=num,
                     ecriture_rec=None
                 )
@@ -291,8 +291,8 @@ class AccountingService:
                     journal=self.journal_db.get_by_code('VE'),
                     account=self.leadger_account_db.get_by_code_or_fail('706'),
                     evidence=self.evidence_db.get_or_add("Qonto", invoice.source_attachment_id, invoice.when),
-                    credit_cent=invoice.amount_excluding_vat_cent,
-                    debit_cent=0,
+                    credit_cent=invoice.amount_excluding_vat_cent if invoice.type == CLIENT_INVOICE else 0,
+                    debit_cent=abs(invoice.amount_excluding_vat_cent) if invoice.type == CLIENT_CREDIT else 0,
                     ecriture_num=num,
                     ecriture_rec=None
                 ))
@@ -303,8 +303,8 @@ class AccountingService:
                     journal=self.journal_db.get_by_code('VE'),
                     account=self.leadger_account_db.get_by_code_or_fail('4458'),
                     evidence=self.evidence_db.get_or_add("Qonto", invoice.source_attachment_id, invoice.when),
-                    credit_cent=invoice.amount_vat_cent,
-                    debit_cent=0,
+                    credit_cent=invoice.amount_vat_cent if invoice.type == CLIENT_INVOICE else 0,
+                    debit_cent=abs(invoice.amount_vat_cent) if invoice.type == CLIENT_CREDIT else 0,
                     ecriture_num=num,
                     ecriture_rec=None
                 ))
@@ -497,6 +497,20 @@ class AccountingService:
               debit_cent=0,
               ecriture_num=last_num))
 
+    def doInvoiceAndCreditReconciliation(self) -> None:
+        for invoice in self.invoices:
+            if invoice.type == CLIENT_CREDIT:
+                for invoice_search in self.invoices:
+                    if invoice.source_id in invoice_search.associated_credit:
+                        rec = self._getNextReconciliation()
+                        end_date = datetime.strptime(str(self.end_date), "%Y-%m-%d")
+                        if not invoice.fec_record or not invoice_search.fec_record:
+                            raise Exception("Technical error 0001")
+                        invoice.fec_record.EcritureLet = rec
+                        invoice.fec_record.DateLet = end_date.strftime("%Y%m%d")
+                        invoice_search.fec_record.EcritureLet = rec
+                        invoice_search.fec_record.DateLet = end_date.strftime("%Y%m%d")
+
     def closeAccouting(self) -> None:
 
         # Add remaining miscellaneous transaction
@@ -504,6 +518,9 @@ class AccountingService:
 
         # Add remaining invoices
         self.doAccountingForInvoicesBefore(None)
+
+        # Invoice credit reconciliation
+        self.doInvoiceAndCreditReconciliation()
 
         # Add provision
         self.addSocialTaxesProvision()

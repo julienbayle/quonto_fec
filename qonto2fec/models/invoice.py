@@ -1,3 +1,4 @@
+from typing import List
 from datetime import datetime
 from .fec_record import FecRecord
 
@@ -44,6 +45,9 @@ class Invoice:
     fec_record: FecRecord | None = None
     """Associated third party fec record to be reconcialiated when paid"""
 
+    associated_credit: List[str]
+    """Associated credit Invoice IDs"""
+
     def __init__(self, source_name: str, source_id: str, source_attachment_id: str, number: str, type: str,
                  when: datetime, total_amount_cents: int, amount_vat_cent: int, thirdparty_name: str) -> None:
 
@@ -60,3 +64,4 @@ class Invoice:
         self.amount_excluding_vat_cent = total_amount_cents - amount_vat_cent
         self.amount_vat_cent = amount_vat_cent
         self.thirdparty_name = thirdparty_name
+        self.associated_credit = []

@@ -26,9 +26,11 @@ def run() -> None:
     # Accounting service
     accounting_service = AccountingService(siren, accounting_period_start_date, accounting_period_end_date)
 
-    # Handles client invoices
+    # Handles client invoices and credit notes
     invoices = qonto.getClientInvoices(accounting_period_start_date, accounting_period_end_date)
     accounting_service.addInvoices(invoices)
+    credit_notes = qonto.getClientCreditNotes(accounting_period_start_date, accounting_period_end_date)
+    accounting_service.addInvoices(credit_notes)
 
     # Handles bank transactions
     bank_transactions = qonto.getTransactions(accounting_period_start_date, accounting_period_end_date)
