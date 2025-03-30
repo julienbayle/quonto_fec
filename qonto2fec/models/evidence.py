@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import NamedTuple
 
 
@@ -20,8 +19,8 @@ class Evidence(NamedTuple):
     """A unique reference identifier for the document within the source system,
     which allows for precise retrieval and verification of the evidence (e.g., file name or database record ID)."""
 
-    when: datetime
-    """The date when the evidence was recorded, created or received in the source system"""
+    when: str
+    """The date when the evidence was recorded, created or received in the source system (format %Y%m%d)"""
 
     def _str(self) -> str:
         return f"{self.number:05d}"

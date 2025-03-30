@@ -87,7 +87,7 @@ class LedgerAccountDB:
         # Supplier or customer
         if code[0:3] in ["401", "411"]:
             for account in self.accounts:
-                if name in account.thirdparty_names_or_quonto_categories:
+                if name in account.thirdparty_names_or_quonto_categories and account.code[0:3] == code[0:3]:
                     return account
         else:
             for account in self.accounts:

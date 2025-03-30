@@ -65,3 +65,6 @@ class Invoice:
         self.amount_vat_cent = amount_vat_cent
         self.thirdparty_name = thirdparty_name
         self.associated_credit = []
+
+    def __str__(self) -> str:
+        return str(vars(self))

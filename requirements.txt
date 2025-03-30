@@ -2,3 +2,5 @@ python-dotenv
 pytz
 tabulate
 types-tabulate
+colorama
+types-colorama

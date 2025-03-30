@@ -69,9 +69,9 @@ avant la généricité et être adaptable à toutes les sociétés.
 
 Le fichier FEC généré a été validé avec :
 
-- [FEC Expert](https://www.fec-expert.fr/)
-- [Compta secure](https://app.comptasecure.fr/)
-- [SmartFEC](https://smartfec-plus.cncc.fr/)
+- [Compta secure](https://app.comptasecure.fr/) via l'analyse payante ECF (Examen de Conformité Fiscale)
+- [FEC Expert](https://www.fec-expert.fr/) via l'analyse gratuite disponible en ligne
+- [SmartFEC](https://smartfec-plus.cncc.fr/) par mon expert comptable
 
 Il est conforme à l’[arrêté du 29 Juillet 2013](http://legifrance.gouv.fr/eli/arrete/2013/7/29/BUDE1315492A/jo/texte) portant modification des dispositions de l’article A. 47 A-1 du livre des procédures fiscales.
 Cet arrêté prévoit l’obligation pour les sociétés ayant une comptabilité informatisée de pouvoir fournir à l’administration fiscale un fichier regroupant l’ensemble des écritures comptables de l’exercice.

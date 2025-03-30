@@ -39,7 +39,7 @@ class LedgerAccount:
             "thirdparty_names_or_quonto_categories": "|".join(self.thirdparty_names_or_quonto_categories)
         }
 
-    def _str(self) -> str:
+    def __str__(self) -> str:
         return str(self.code).ljust(6, '0')
 
     def fec_compte_num(self) -> str:

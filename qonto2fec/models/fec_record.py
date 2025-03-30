@@ -68,9 +68,6 @@ class FecRecord:
         # Compute lettrage datetime (always last open day of the month)
         end_of_month = datetime(when.year, when.month, 1) + timedelta(days=32)
         end_of_month = end_of_month - timedelta(days=end_of_month.day + 1)
-        day_of_week = end_of_month.weekday()
-        if day_of_week > 4:
-            end_of_month -= timedelta(days=(day_of_week-4))
 
         self.JournalCode = journal.code
         self.JournalLib = journal.label
@@ -81,7 +78,7 @@ class FecRecord:
         self.CompAuxNum = account.fec_compte_aux_num()
         self.CompAuxLib = account.fec_compte_aux_lib()
         self.PieceRef = str(evidence.number) if evidence else ""
-        self.PieceDate = evidence.when.strftime("%Y%m%d") if evidence else ""
+        self.PieceDate = evidence.when if evidence else ""
         self.EcritureLib = label
         self.Debit = FecRecord.centToFrenchFecFormat(debit_cent)
         self.Credit = FecRecord.centToFrenchFecFormat(credit_cent)
@@ -90,6 +87,9 @@ class FecRecord:
         self.ValidDate = datetime(when.year, 12, 31).strftime("%Y%m%d")
         self.Montantdevise = None
         self.Idevise = None
+
+    def __str__(self) -> str:
+        return str(self._asdict())
 
     @staticmethod
     def centToFrenchFecFormat(amount: int) -> str:

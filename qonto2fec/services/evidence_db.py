@@ -21,7 +21,7 @@ class EvidenceDB:
             if source == evidence.source and reference == evidence.source_reference:
                 return evidence
 
-        new_evidence = Evidence(number=len(self.evidences)+1, source=source, source_reference=reference, when=when)
+        new_evidence = Evidence(number=len(self.evidences)+1, source=source, source_reference=reference, when=when.strftime("%Y%m%d"))
         self.evidences.append(new_evidence)
 
         return new_evidence

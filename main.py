@@ -32,6 +32,10 @@ def run() -> None:
     credit_notes = qonto.getClientCreditNotes(accounting_period_start_date, accounting_period_end_date)
     accounting_service.addInvoices(credit_notes)
 
+    # Handle unpaid supplier invoices
+    supplier_invoices = qonto.getToPaySupplierInvoices(accounting_period_start_date, accounting_period_end_date)
+    accounting_service.addInvoices(supplier_invoices)
+
     # Handles bank transactions
     bank_transactions = qonto.getTransactions(accounting_period_start_date, accounting_period_end_date)
     logging.info(f"{len(bank_transactions)} bank transactions retrieved from Qonto")
@@ -41,9 +45,8 @@ def run() -> None:
     # Closes accounting period properly
     accounting_service.closeAccouting()
 
-    # Computes and display balances
-    accounting_service.displayBalances()
-    accounting_service.displayMonthlyBalance()
+    # Display balance
+    accounting_service.displayCumulativeMonthlyBalance()
 
     # Saves accounting work to disk
     accounting_service.save()

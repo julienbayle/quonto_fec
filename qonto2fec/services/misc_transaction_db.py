@@ -1,11 +1,11 @@
 import logging
 import re
-import pytz
 from datetime import datetime
 from typing import Dict, List, Optional
 from ..models.misc_transaction import MiscellaneousTransaction, MiscellaneousTransactionEntry
 from .journal_db import JournalDB
 from .ledger_account_db import LedgerAccountDB
+from .date_utils import conv_date_from_utc_to_local
 
 
 class MiscellaneousTransactionDB:
@@ -64,10 +64,7 @@ class MiscellaneousTransactionDB:
                     ecriture_date_txt = parts[0].strip()
                     try:
                         ecriture_date = datetime.strptime(ecriture_date_txt, "%d/%m/%Y")
-                        local_tz = pytz.timezone("Europe/Paris")
-                        utc_tz = pytz.timezone("UTC")
-                        dt_utc = utc_tz.localize(ecriture_date)
-                        ecriture_date_local = local_tz.normalize(dt_utc)
+                        ecriture_date_local = conv_date_from_utc_to_local(ecriture_date)
                     except Exception as e:
                         raise ValueError(f"Unexpected date format at line {linenum} : {line}") from e
 
@@ -82,7 +79,7 @@ class MiscellaneousTransactionDB:
                             raise ValueError(f"Unexpected date format at line {linenum} : {parts}") from e
 
                         if not ecriture_date or not ecriture_lib:
-                            raise ValueError(f"Unexpected content at line {linenum}, missing EcritureLib : {parts}")
+                            raise ValueError(f"Unexpected content at line {linenum}, missing EcritureLib or EcritureDate : {parts}")
 
                         current_transaction = MiscellaneousTransaction(
                             EcritureDate=ecriture_date_local,
@@ -110,8 +107,8 @@ class MiscellaneousTransactionDB:
 
                     # Validate number format
                     try:
-                        debit = int(float(parts[2].replace(".", ",")) * 100)
-                        credit = int(float(parts[3].replace(".", ",")) * 100)
+                        debit = int(float(parts[2].replace(",", ".")) * 100)
+                        credit = int(float(parts[3].replace(",", ".")) * 100)
                     except Exception as e:
                         raise ValueError(f"Unexpected amount format at line {linenum} : {parts}") from e
 
@@ -157,4 +154,5 @@ class MiscellaneousTransactionDB:
                 result.extend(transactions)
 
         self.previous_date = until_date
+        result.sort(key=lambda transaction: transaction.EcritureDate)
         return result
