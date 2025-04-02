@@ -25,7 +25,7 @@ class LedgerAccountDB:
         # Supplier or customer
         if code[0:3] in ["401", "411"]:
             # Search by full code if provided
-            if len(code) == 6:
+            if len(code) > 3:
                 existing = self.get_by_code(code)
                 if existing:
                     return existing
@@ -38,11 +38,8 @@ class LedgerAccountDB:
 
             # Create new
             if name is not None and name.strip() != "":
-                new_code = int(code[0:3]) * 1000 + len([c for c in self.accounts if c.code[0:3] in ["401", "411"] and len(c.code) > 3]) + 1
-                main_account = self.get_by_code(code[0:3])
-                if main_account is None:
-                    raise ValueError("Missing default account for supplier or customer")
-                return self._add(LedgerAccount(str(new_code), main_account.name, name))
+                new_code = int(code[0:3]) * 10000 + len([c for c in self.accounts if c.code[0:3] in ["401", "411"] and len(c.code) > 3]) + 1
+                return self._add(LedgerAccount(str(new_code), name, name))
 
         else:
             # Search by code

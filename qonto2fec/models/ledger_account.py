@@ -43,7 +43,7 @@ class LedgerAccount:
         return str(self.code).ljust(6, '0')
 
     def fec_compte_num(self) -> str:
-        return self.code if self.code[0:3] not in ["401", "411"] else self.code[0:3]
+        return self.code
 
     def fec_compte_lib(self) -> str:
         return self.name
