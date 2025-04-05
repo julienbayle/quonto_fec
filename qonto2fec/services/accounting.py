@@ -32,6 +32,7 @@ class AccountingService:
         self.end_date = end_date
         self.fec_filename = f"{siren}FEC{str(end_date)}"
         self.invoices = []
+        self.invoices_filename = f"{siren}INVOICES{str(end_date)}"
 
         # Load databases
         self.journal_db = JournalDB()
@@ -45,6 +46,9 @@ class AccountingService:
     def save(self) -> None:
         # Save FEC records
         save_dict_to_csv([r._asdict() for r in self.fec_records], self.fec_filename, False)
+
+        # Save Invoices
+        save_dict_to_csv([i._asdict() for i in self.invoices if i.type in [CLIENT_INVOICE, CLIENT_CREDIT]], self.invoices_filename, False)
 
         # Save evidences database
         self.evidence_db.save()

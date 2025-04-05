@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict
 from datetime import datetime
 from .fec_record import FecRecord
 
@@ -68,3 +68,18 @@ class Invoice:
 
     def __str__(self) -> str:
         return str(vars(self))
+
+    def _asdict(self) -> Dict[str, str]:
+        return {
+            "type": self.type,
+            "source": self.source_name,
+            "source_id": self.source_id,
+            "attachment_id": self.source_attachment_id,
+            "number": self.number,
+            "issued_when": self.when.strftime("%Y%m%d"),
+            "gross_amount": FecRecord.centToFrenchFecFormat(self.total_amount_cent),
+            "net_amount": FecRecord.centToFrenchFecFormat(self.amount_excluding_vat_cent),
+            "vat_amount": FecRecord.centToFrenchFecFormat(self.amount_vat_cent),
+            "thirdpary_name": self.thirdparty_name,
+            "associated_credit_source_ids": ",".join(self.associated_credit),
+        }
