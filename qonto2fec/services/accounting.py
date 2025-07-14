@@ -119,7 +119,7 @@ class AccountingService:
         """
 
         # Invoice payment
-        if "sales" == transaction.category and transaction.amount_excluding_vat > 0:
+        if transaction.category in ["sales", "other_income"] and transaction.amount_excluding_vat > 0 and "Virement interne" != transaction.reference:
             num = self._getNextOpCounter(transaction.when)
             rec = self._getNextReconciliation()
             self._createFecRecordFromBankTransaction(transaction, "BQ", "512", 0, transaction.amount_excluding_vat + transaction.vat, num)
@@ -165,7 +165,7 @@ class AccountingService:
                 raise Exception(f"Invoice not found in accounting : {fec.PieceRef} {fec.EcritureLib} {fec.EcritureDate}")
 
         # Financial investment (starting)
-        elif "treasury_and_interco" == transaction.category and transaction.amount_excluding_vat < 0 and transaction.vat == 0:
+        elif "Virement interne" == transaction.reference and transaction.amount_excluding_vat < 0 and transaction.vat == 0:
             num = self._getNextOpCounter(transaction.when)
             self._createFecRecordFromBankTransaction(transaction, "BQ", "512", -transaction.amount_excluding_vat, 0, num)
             self._createFecRecordFromBankTransaction(transaction, "BQ", "580", 0, -transaction.amount_excluding_vat, num)
@@ -174,7 +174,7 @@ class AccountingService:
             self._createFecRecordFromBankTransaction(transaction, "BQ1", "512001", 0, -transaction.amount_excluding_vat, num)
 
         # Financial investment (ending)
-        elif "treasury_and_interco" == transaction.category and transaction.amount_excluding_vat > 0 and transaction.vat == 0:
+        elif "Virement interne" == transaction.reference and transaction.amount_excluding_vat > 0 and transaction.vat == 0:
             num = self._getNextOpCounter(transaction.when)
             self._createFecRecordFromBankTransaction(transaction, "BQ1", "512001", transaction.amount_excluding_vat, 0, num)
             self._createFecRecordFromBankTransaction(transaction, "BQ1", "580", 0, transaction.amount_excluding_vat, num)
@@ -207,6 +207,12 @@ class AccountingService:
 
                     # Exception : owner revenue
                     elif account.code in ["6411", "4551", "431"] and transaction.amount_excluding_vat < 0 and transaction.vat == 0:
+                        num = self._getNextOpCounter(transaction.when)
+                        self._createFecRecordFromBankTransaction(transaction, "BQ", "512", -transaction.amount_excluding_vat, 0, num)
+                        self._createFecRecordFromBankTransaction(transaction, "BQ", account.code, 0, -transaction.amount_excluding_vat, num)
+
+                    # Taxes
+                    elif account.code[0:1] == "4" and transaction.amount_excluding_vat < 0 and transaction.vat == 0:
                         num = self._getNextOpCounter(transaction.when)
                         self._createFecRecordFromBankTransaction(transaction, "BQ", "512", -transaction.amount_excluding_vat, 0, num)
                         self._createFecRecordFromBankTransaction(transaction, "BQ", account.code, 0, -transaction.amount_excluding_vat, num)
@@ -315,6 +321,15 @@ class AccountingService:
                     expense_account = '6226'
                     vat_rate = 0.2
 
+                if invoice.thirdparty_name == "GOOGLE COMMERCE LIMITED":
+                    expense_account = '6156'
+                    vat_rate = 0.2
+
+                try:
+                    expense_account_ledger = self.leadger_account_db.get_by_code_or_fail(expense_account)
+                except Exception as e:
+                    raise Exception(str(e) + " with thrid party name " + invoice.thirdparty_name) from e
+
                 num = self._getNextOpCounter(None)
                 fecRecord = FecRecord(
                     when=max(invoice.when, lastRecordWhen),
@@ -334,7 +349,7 @@ class AccountingService:
                     when=max(invoice.when, lastRecordWhen),
                     label=invoice.number,
                     journal=self.journal_db.get_by_code('AC'),
-                    account=self.leadger_account_db.get_by_code_or_fail(expense_account),
+                    account=expense_account_ledger,
                     evidence=self.evidence_db.get_or_add("Qonto", invoice.source_attachment_id, invoice.when),
                     credit_cent=0,
                     debit_cent=abs(invoice.amount_excluding_vat_cent),

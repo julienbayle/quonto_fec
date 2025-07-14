@@ -71,6 +71,8 @@ class FinancialTransaction:
                 if vat_detail["rate"] not in [0.0, 5.5, 10, 20]:
                     raise ValueError(f"{name}: VAT rate not supported : {vat_detail['rate']}")
                 amount_excluding_vat += side * vat_detail["amount_excluding_vat_cents"]
+                if vat_detail["amount_cents"] is None:
+                    raise ValueError(f"{name}: VAT amount not defined : {vat_detail['amount_cents']}")
                 vat += side * vat_detail["amount_cents"]
         else:
             vat = 0.0
