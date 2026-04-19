@@ -140,4 +140,5 @@ cython_debug/
 *.txt
 
 # Data
+config/20*
 export/
