@@ -22,11 +22,11 @@ class MiscellaneousTransactionDB:
         self.journal_db = journal_db
         self.accounts_db = accounts_db
 
-        with open(filepath, "r", encoding="utf-8") as file:
+        with open(filepath.replace('-', ''), "r", encoding="utf-8") as file:
             data_text = file.read()
 
         self._parse_data(data_text)
-        logging.info(f"{len(self.transactions)} miscellaneous transactions retrieved from {filepath}")
+        logging.info(f"{filepath} {len(self.transactions)} miscellaneous transactions retrieved")
 
     def _parse_data(self, data_text: str) -> None:
         """Parses the raw text data and populates transactions."""

@@ -140,4 +140,4 @@ cython_debug/
 *.txt
 
 # Data
-config/misc*
+export/

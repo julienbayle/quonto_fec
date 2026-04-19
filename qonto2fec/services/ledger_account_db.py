@@ -25,7 +25,7 @@ class LedgerAccountDB:
         # Supplier or customer
         if code[0:3] in ["401", "411"]:
             # Search by full code if provided
-            if len(code) > 3:
+            if len(code) > 7:
                 existing = self.get_by_code(code)
                 if existing:
                     return existing
@@ -38,12 +38,18 @@ class LedgerAccountDB:
 
             # Create new
             if name is not None and name.strip() != "":
-                new_code = int(code[0:3]) * 10000 + len([c for c in self.accounts if c.code[0:3] in ["401", "411"] and len(c.code) > 3]) + 1
-                return self._add(LedgerAccount(str(new_code), name, name))
+                new_code = code.ljust(7, '0')[0:7]
+                for c in self.accounts:
+                    if c.code[0:3] in ["401", "411"] and len(c.code) and name in c.thirdparty_names_or_quonto_categories:
+                        return self._add(LedgerAccount(new_code + c.code[7:], name, name))
+
+                company_code = str(10000 * (len({c.code[7:] for c in self.accounts if c.code[0:3] in ["401", "411"] and len(c.code) > 7}) + 1))
+                new_code += company_code.rjust(7, '0')
+                return self._add(LedgerAccount(new_code, name, name))
 
         else:
             # Search by code
-            existing = self.get_by_code(code)
+            existing = self.get_by_code(code.rstrip('0'))
             if existing:
                 return existing
 
@@ -66,7 +72,7 @@ class LedgerAccountDB:
 
     def get_by_code(self, code: str) -> Optional[LedgerAccount]:
         for account in self.accounts:
-            if account.code == code:
+            if account.code.rstrip('0') == code.rstrip('0'):
                 return account
 
         return None
@@ -79,12 +85,12 @@ class LedgerAccountDB:
             raise ValueError(f"No ledger account with code {code}")
 
     def get_by_name(self, name: str, code: str = "") -> Optional[LedgerAccount]:
-        name = name.upper()
+        name = name.upper().strip()
 
         # Supplier or customer
         if code[0:3] in ["401", "411"]:
             for account in self.accounts:
-                if name in account.thirdparty_names_or_quonto_categories and account.code[0:3] == code[0:3]:
+                if name in account.thirdparty_names_or_quonto_categories and account.code[0:len(code.rstrip('0'))].rstrip('0') == code.rstrip('0'):
                     return account
         else:
             for account in self.accounts:

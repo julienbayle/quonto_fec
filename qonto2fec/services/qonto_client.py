@@ -88,12 +88,11 @@ class QontoClient:
         end_date_t += timedelta(hours=23, minutes=59)
 
         created_at_from = f"filter[created_at_from]={start_date_t.strftime('%Y-%m-%dT%H:%M:%S.%fZ')}"
-        created_at_to = f"filter[created_at_to]={end_date_t.strftime('%Y-%m-%dT%H:%M:%S.%fZ')}"
 
         invoices = []
         next_page = 1
         while next_page is not None:
-            url = f"/v2/client_invoices?{created_at_from}&{created_at_to}&page={next_page}"
+            url = f"/v2/client_invoices?{created_at_from}&page={next_page}"
             self.conn.request("GET", url, "{}", self.headers)
             response = self.conn.getresponse()
             if response.status != 200:
@@ -105,22 +104,24 @@ class QontoClient:
             next_page = raw_invoices["meta"]["next_page"]
 
             for raw_invoice in raw_invoices["client_invoices"]:
-                invoice = Invoice(
-                    type=CLIENT_INVOICE,
-                    source_name="Qonto",
-                    source_id=raw_invoice["id"],
-                    source_attachment_id=raw_invoice["attachment_id"],
-                    when=conv_date_from_utc_to_local(raw_invoice["issue_date"]),
-                    number=raw_invoice["number"],
-                    total_amount_cents=raw_invoice["total_amount_cents"],
-                    amount_vat_cent=raw_invoice["vat_amount_cents"],
-                    thirdparty_name=raw_invoice["client"]["name"]
-                )
+                issued_date = conv_date_from_utc_to_local(raw_invoice["issue_date"])
+                if issued_date >= start_date_t and issued_date < end_date_t:
+                    invoice = Invoice(
+                        type=CLIENT_INVOICE,
+                        source_name="Qonto",
+                        source_id=raw_invoice["id"],
+                        source_attachment_id=raw_invoice["attachment_id"],
+                        when=issued_date,
+                        number=raw_invoice["number"],
+                        total_amount_cents=raw_invoice["total_amount_cents"],
+                        amount_vat_cent=raw_invoice["vat_amount_cents"],
+                        thirdparty_name=raw_invoice["client"]["name"]
+                    )
 
-                if raw_invoice["credit_notes_ids"]:
-                    invoice.associated_credit = raw_invoice["credit_notes_ids"]
+                    if raw_invoice["credit_notes_ids"]:
+                        invoice.associated_credit = raw_invoice["credit_notes_ids"]
 
-                invoices.append(invoice)
+                    invoices.append(invoice)
 
         invoices = sorted(invoices, key=attrgetter("when"))
 
@@ -202,3 +203,23 @@ class QontoClient:
         invoices = sorted(invoices, key=attrgetter("when"))
 
         return invoices
+
+    def getAttachmentInfo(self, attachment_id: str) -> Dict[str, str]:
+        """
+        Get attachment information from Qonto
+
+        https://api-doc.qonto.com/docs/business-api/67e27303f901a-show-attachment
+        """
+        url = f"/v2/attachments/{attachment_id}"
+        self.conn.request("GET", url, "{}", self.headers)
+        response = self.conn.getresponse()
+        if response.status != 200:
+            print(response.read())
+            raise Exception(response.status, response.reason)
+
+        data = response.read()
+        attachment = json.loads(data.decode("utf-8"))["attachment"]
+        return {
+            "url": attachment["url"],
+            "file_name": attachment["file_name"]
+        }

@@ -1,6 +1,6 @@
 import logging
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Tuple
 from tabulate import tabulate
 from colorama import Fore, Style
 
@@ -11,13 +11,14 @@ from .misc_transaction_db import MiscellaneousTransactionDB
 from ..models.financial_transaction import FinancialTransaction
 from ..models.invoice import Invoice, CLIENT_CREDIT, CLIENT_INVOICE, SUPPLIER_INVOICE
 from ..models.fec_record import FecRecord
-from .file_utils import save_dict_to_csv
+from .file_utils import save_dict_to_csv, read_dict_from_csv
 from .date_utils import conv_date_from_utc_to_local
 
 
 class AccountingService:
 
     fec_records: List[FecRecord] = []
+    previous_year_fec_records: List[FecRecord] = []
     fec_counter: int = 0
     reconciliation_counter: int = 0
 
@@ -40,8 +41,19 @@ class AccountingService:
         self.leadger_account_db = LedgerAccountDB(f"{siren}ACCOUNTS")
 
         # Load miscellaneous transactions
-        misc_path = f"config/misc_transactions{str(end_date.replace('-', ''))}.txt"
+        misc_path = f"config/{siren}OPS{str(end_date)}.txt"
         self.misc_transaction_db = MiscellaneousTransactionDB(misc_path, self.journal_db, self.leadger_account_db)
+
+        # Load previous fiscal year FEC
+        self.previous_year_fec_records = self._load_previous_fec(siren)
+
+    def _load_previous_fec(self, siren: str) -> List[FecRecord]:
+        start_date_dt = datetime.strptime(self.start_date, "%Y-%m-%d")
+        previous_day = start_date_dt - timedelta(days=1)
+        previous_fec_name = f"{siren}FEC{previous_day.strftime('%Y-%m-%d')}"
+
+        data = read_dict_from_csv(previous_fec_name, escape=False)
+        return [FecRecord.from_dict(row) for row in data]
 
     def save(self) -> None:
         # Save FEC records
@@ -50,11 +62,12 @@ class AccountingService:
         # Save Invoices
         save_dict_to_csv([i._asdict() for i in self.invoices if i.type in [CLIENT_INVOICE, CLIENT_CREDIT]], self.invoices_filename, False)
 
-        # Save evidences database
-        self.evidence_db.save()
-
         # Save ledger accounts database
         self.leadger_account_db.save()
+
+    def exportEvidences(self, qonto_client: Any) -> None:
+        self.evidence_db.download_evidences(qonto_client)
+        self.evidence_db.save()
 
     def addInvoices(self, invoices: List[Invoice]) -> None:
         self.invoices.extend(invoices)
@@ -98,6 +111,9 @@ class AccountingService:
         if len(transaction.attachments) > 0:
             evidence = self.evidence_db.get_or_add("Qonto", transaction.attachments[0], transaction.when)
 
+        if not evidence and account == "64114":
+            evidence = self.evidence_db.get_or_add("Assurance", "Mutuelle", transaction.when)
+
         fecRecord = FecRecord(
             when=transaction.when,
             label=ecritureLib,
@@ -113,29 +129,168 @@ class AccountingService:
         self.fec_records.append(fecRecord)
         return fecRecord
 
+    def generateRAN(self) -> None:
+        """
+        Generates opening operation from previous fiscal year
+        """
+
+        if not self.previous_year_fec_records:
+            return
+
+        # 1. Dictionnary to accumulate balance per account (in cents)
+        # Key : (CompteNum)
+        aggregate_balances: Dict[str, int] = {}
+
+        # 2. Initialization
+        ran_journal = self.journal_db.get_by_code("AN")
+        ran_date = conv_date_from_utc_to_local(self.start_date)
+        ecriture_num = self._getNextOpCounter(None)
+        result = 0
+        an_evidence = self.evidence_db.get_or_add("AN", f"AN{ran_date.year}", ran_date)
+
+        for record in self.previous_year_fec_records:
+
+            # 1. Keep account class 1 to 5 and lines without accounting code
+            if record.CompteNum == '':
+                continue
+
+            if record.CompteNum[0] in "67":
+                result += record.getCreditAsCent() - record.getDebitAsCent()
+                continue
+
+            # 2. Unpaid customer or supplier
+            if record.CompAuxNum and (not record.EcritureLet or record.EcritureLet.strip() == ""):
+                # Keep the line only if Lettrage is mission (not payed)
+                acc = self.leadger_account_db.get_by_code_or_fail(record.CompteNum + record.CompAuxNum)
+
+                new_rec = FecRecord(
+                    when=ran_date,
+                    label=record.EcritureLib,
+                    journal=ran_journal,
+                    account=acc,
+                    debit_cent=record.getDebitAsCent(),
+                    credit_cent=record.getCreditAsCent(),
+                    ecriture_num=ecriture_num,
+                    evidence=an_evidence
+                )
+                self.fec_records.append(new_rec)
+
+            # 3. Other accounts (total aggregate per account)
+            else:
+                amount = record.getDebitAsCent() - record.getCreditAsCent()
+                aggregate_balances[record.CompteNum] = aggregate_balances.get(record.CompteNum, 0) + amount
+
+        for q_num, total_cent in aggregate_balances.items():
+            if total_cent == 0:
+                continue
+
+            # Création du FecRecord de RAN
+            new_record = FecRecord(
+                when=ran_date,
+                label=f"Report à nouveau {ran_date.year}",
+                journal=ran_journal,
+                account=self.leadger_account_db.get_by_code_or_fail(q_num),
+                debit_cent=total_cent if total_cent > 0 else 0,
+                credit_cent=abs(total_cent) if total_cent < 0 else 0,
+                ecriture_num=ecriture_num,
+                evidence=an_evidence
+            )
+
+            self.fec_records.append(new_record)
+
+        if result >= 0:
+            # Création du FecRecord de RAN
+            new_record = FecRecord(
+                when=ran_date,
+                label=f"Bénéfice exercice {ran_date.year}",
+                journal=ran_journal,
+                account=self.leadger_account_db.get_by_code_or_fail("120"),
+                debit_cent=0,
+                credit_cent=abs(result),
+                ecriture_num=ecriture_num,
+                evidence=an_evidence
+            )
+
+            self.fec_records.append(new_record)
+        else:
+            # Création du FecRecord de RAN
+            new_record = FecRecord(
+                when=ran_date,
+                label=f"Pertes exercice {ran_date.year}",
+                journal=ran_journal,
+                account=self.leadger_account_db.get_by_code_or_fail("129"),
+                debit_cent=abs(result),
+                credit_cent=0,
+                ecriture_num=ecriture_num,
+                evidence=an_evidence
+            )
+
+            self.fec_records.append(new_record)
+
     def doAccountingForBankTransaction(self, transaction: FinancialTransaction) -> None:
-        """Apply accounting rules, attach generated FEC records to the transaction
+        """Apply accounting rules for a bank transaction,
+           search and attach generated FEC records to the transaction
            and append it in fec_records collection
         """
 
         # Invoice payment
-        if transaction.category in ["sales", "other_income"] and transaction.amount_excluding_vat > 0 and "Virement interne" != transaction.reference:
+        if transaction.category in ["sales", "other_income"] \
+                and transaction.amount_excluding_vat > 0 \
+                and "Virement interne" != transaction.reference:
+
             num = self._getNextOpCounter(transaction.when)
             rec = self._getNextReconciliation()
-            self._createFecRecordFromBankTransaction(transaction, "BQ", "512", 0, transaction.amount_excluding_vat + transaction.vat, num)
-            fec = self._createFecRecordFromBankTransaction(transaction, "BQ", "411", transaction.amount_excluding_vat + transaction.vat, 0, num, rec)
+            bank_fec_record = self._createFecRecordFromBankTransaction(transaction, "BQ", "512", 0, transaction.amount_excluding_vat + transaction.vat, num)
+            amount_to_match = transaction.amount_excluding_vat + transaction.vat
 
             # Search corresponding invoice for reconcialiation and mark VAT to be paid
             invoice_fec_found = False
+            partial_match_amount = 0
+            partial_match_fec_records: List[FecRecord] = []
             for fec_record in self.fec_records:
-                amount_match = fec_record.Credit == fec.Debit and fec_record.Debit == fec.Credit
-                attachment_match = fec_record.PieceRef in fec.PieceRef or fec_record.EcritureLib in fec.EcritureLib
-                if fec.EcritureNum != fec_record.EcritureNum and amount_match and attachment_match:
+                if invoice_fec_found:
+                    continue
+
+                # Already reconciliated or previously created bank record
+                if fec_record.EcritureLet or (fec_record == bank_fec_record):
+                    continue
+
+                amount_match = fec_record.getDebitAsCent() == amount_to_match and fec_record.getCreditAsCent() == 0
+                attachment_match = \
+                    (fec_record.PieceRef != '' and fec_record.PieceRef == bank_fec_record.PieceRef) \
+                    or (fec_record.EcritureLib != '' and fec_record.EcritureLib in bank_fec_record.EcritureLib)
+
+                if fec_record.getDebitAsCent() < amount_match and attachment_match:
+                    partial_match_amount += fec_record.getDebitAsCent()
+                    partial_match_fec_records.append(fec_record)
+                    print("Partial match")
+                    print(bank_fec_record)
+                    print(fec_record)
+
+                if partial_match_amount == amount_to_match:
+                    print("Partial match now full")
+                    amount_match = True
+
+                if amount_match and attachment_match:
                     invoice_fec_found = True
 
-                    # Reconciliate invoice
-                    fec_record.EcritureLet = fec.EcritureLet
-                    fec_record.DateLet = fec.DateLet
+                    # Reconciliate invoices
+                    if partial_match_fec_records:
+                        for partial_match_fec_record in partial_match_fec_records:
+                            fec = self._createFecRecordFromBankTransaction(
+                                transaction, "BQ", "4111",
+                                partial_match_fec_record.getDebitAsCent(),
+                                0, num, rec)
+                            partial_match_fec_record.EcritureLet = fec.EcritureLet
+                            partial_match_fec_record.DateLet = fec.DateLet
+
+                    else:
+                        fec = self._createFecRecordFromBankTransaction(
+                            transaction, "BQ", "4111",
+                            transaction.amount_excluding_vat + transaction.vat,
+                            0, num, rec)
+                        fec_record.EcritureLet = fec.EcritureLet
+                        fec_record.DateLet = fec.DateLet
 
                     # Mark TVA to be paid
                     self.fec_records.append(FecRecord(
@@ -162,27 +317,46 @@ class AccountingService:
                     ))
 
             if not invoice_fec_found:
-                raise Exception(f"Invoice not found in accounting : {fec.PieceRef} {fec.EcritureLib} {fec.EcritureDate}")
+                print(transaction)
+                raise Exception(f"Invoice not found in accounting : {transaction.thirdparty_name} {transaction.when} {bank_fec_record.EcritureLib}")
 
-        # Financial investment (starting)
-        elif "Virement interne" == transaction.reference and transaction.amount_excluding_vat < 0 and transaction.vat == 0:
-            num = self._getNextOpCounter(transaction.when)
-            self._createFecRecordFromBankTransaction(transaction, "BQ", "512", -transaction.amount_excluding_vat, 0, num)
-            self._createFecRecordFromBankTransaction(transaction, "BQ", "580", 0, -transaction.amount_excluding_vat, num)
-            num = self._getNextOpCounter(transaction.when)
-            self._createFecRecordFromBankTransaction(transaction, "BQ1", "580", -transaction.amount_excluding_vat, 0, num)
-            self._createFecRecordFromBankTransaction(transaction, "BQ1", "512001", 0, -transaction.amount_excluding_vat, num)
+        # Financial investment
+        elif "Virement interne" in transaction.reference:
 
-        # Financial investment (ending)
-        elif "Virement interne" == transaction.reference and transaction.amount_excluding_vat > 0 and transaction.vat == 0:
-            num = self._getNextOpCounter(transaction.when)
-            self._createFecRecordFromBankTransaction(transaction, "BQ1", "512001", transaction.amount_excluding_vat, 0, num)
-            self._createFecRecordFromBankTransaction(transaction, "BQ1", "580", 0, transaction.amount_excluding_vat, num)
-            num = self._getNextOpCounter(transaction.when)
-            self._createFecRecordFromBankTransaction(transaction, "BQ", "580", transaction.amount_excluding_vat, 0, num)
-            self._createFecRecordFromBankTransaction(transaction, "BQ", "512", 0, transaction.amount_excluding_vat, num)
+            # starting
+            if transaction.amount_excluding_vat < 0 and transaction.vat == 0:
+                num = self._getNextOpCounter(transaction.when)
+                self._createFecRecordFromBankTransaction(transaction, "BQ", "512", -transaction.amount_excluding_vat, 0, num)
+                self._createFecRecordFromBankTransaction(transaction, "BQ", "580", 0, -transaction.amount_excluding_vat, num)
+                num = self._getNextOpCounter(transaction.when)
+                self._createFecRecordFromBankTransaction(transaction, "BQ", "580", -transaction.amount_excluding_vat, 0, num)
+                self._createFecRecordFromBankTransaction(transaction, "BQ", "512001", 0, -transaction.amount_excluding_vat, num)
 
-        # VAT
+            # ending
+            if transaction.amount_excluding_vat > 0 and transaction.vat == 0:
+                num = self._getNextOpCounter(transaction.when)
+                self._createFecRecordFromBankTransaction(transaction, "BQ", "512001", transaction.amount_excluding_vat, 0, num)
+                self._createFecRecordFromBankTransaction(transaction, "BQ", "580", 0, transaction.amount_excluding_vat, num)
+                num = self._getNextOpCounter(transaction.when)
+                self._createFecRecordFromBankTransaction(transaction, "BQ", "580", transaction.amount_excluding_vat, 0, num)
+                self._createFecRecordFromBankTransaction(transaction, "BQ", "512", 0, transaction.amount_excluding_vat, num)
+
+        # Transfert to Boursorama
+        elif transaction.thirdparty_name == "GF PARTNER":
+
+            # starting
+            if transaction.amount_excluding_vat < 0 and transaction.vat == 0:
+                num = self._getNextOpCounter(transaction.when)
+                self._createFecRecordFromBankTransaction(transaction, "BQ", "512", -transaction.amount_excluding_vat, 0, num)
+                self._createFecRecordFromBankTransaction(transaction, "BQ", "512002", 0, -transaction.amount_excluding_vat, num)
+
+            # ending
+            if transaction.amount_excluding_vat > 0 and transaction.vat == 0:
+                num = self._getNextOpCounter(transaction.when)
+                self._createFecRecordFromBankTransaction(transaction, "BQ", "512002", transaction.amount_excluding_vat, 0, num)
+                self._createFecRecordFromBankTransaction(transaction, "BQ", "512", 0, transaction.amount_excluding_vat, num)
+
+        # VAT DGFIP
         elif (
             "TVA" in str(transaction.reference)
             and "CA3" in str(transaction.reference)
@@ -229,16 +403,16 @@ class AccountingService:
 
                     # Expenses
                     elif account.code[0:1] == "6" and transaction.amount_excluding_vat < 0:
-                        amount = -transaction.amount_excluding_vat - transaction.vat
+                        amount = abs(transaction.amount_excluding_vat) + abs(transaction.vat)
                         rec = self._getNextReconciliation()
                         num = self._getNextOpCounter(transaction.when)
-                        self._createFecRecordFromBankTransaction(transaction, "AC", "401", amount, 0, num, rec)
-                        self._createFecRecordFromBankTransaction(transaction, "AC", account.code, 0, -transaction.amount_excluding_vat, num)
+                        self._createFecRecordFromBankTransaction(transaction, "AC", "4011", amount, 0, num, rec)
+                        self._createFecRecordFromBankTransaction(transaction, "AC", account.code, 0, abs(transaction.amount_excluding_vat), num)
                         if transaction.vat != 0:
-                            self._createFecRecordFromBankTransaction(transaction, "AC", "445661", 0, -transaction.vat, num)
+                            self._createFecRecordFromBankTransaction(transaction, "AC", "445661", 0, abs(transaction.vat), num)
                         num = self._getNextOpCounter(transaction.when)
                         self._createFecRecordFromBankTransaction(transaction, "BQ", "512", amount, 0, num)
-                        self._createFecRecordFromBankTransaction(transaction, "BQ", "401", 0, amount, num, rec)
+                        self._createFecRecordFromBankTransaction(transaction, "BQ", "4011", 0, amount, num, rec)
 
         if len(transaction.fec_records) == 0:
             raise RuntimeError(f"Transaction not supported yet, please create new rules or update configuration : {transaction}")
@@ -278,7 +452,7 @@ class AccountingService:
                     when=max(invoice.when, lastRecordWhen),
                     label=invoice.number,
                     journal=self.journal_db.get_by_code('VE'),
-                    account=self.leadger_account_db.get_or_create('411', invoice.thirdparty_name),
+                    account=self.leadger_account_db.get_or_create('4111', invoice.thirdparty_name),
                     evidence=self.evidence_db.get_or_add("Qonto", invoice.source_attachment_id, invoice.when),
                     credit_cent=abs(invoice.total_amount_cent) if invoice.type == CLIENT_CREDIT else 0,
                     debit_cent=invoice.total_amount_cent if invoice.type == CLIENT_INVOICE else 0,
@@ -335,7 +509,7 @@ class AccountingService:
                     when=max(invoice.when, lastRecordWhen),
                     label=invoice.number,
                     journal=self.journal_db.get_by_code('AC'),
-                    account=self.leadger_account_db.get_or_create('401', invoice.thirdparty_name),
+                    account=self.leadger_account_db.get_or_create('4011', invoice.thirdparty_name),
                     evidence=self.evidence_db.get_or_add("Qonto", invoice.source_attachment_id, invoice.when),
                     credit_cent=round(invoice.total_amount_cent * (1 + vat_rate)),
                     debit_cent=0,
@@ -405,9 +579,10 @@ class AccountingService:
         for fec in self.fec_records:
             for i, h in enumerate(headers):
                 for a in data:
-                    if fec.CompteNum == str(a[0]) and h == fec.EcritureDate[0:6]:
+                    if fec.CompteNum == str(a[0]) and fec.CompteLib == str(a[1]) and h == fec.EcritureDate[0:6]:
                         for month in range(i, self.getNbMonths()+3):
-                            a[month] = float(a[month]) + float(fec.getCreditAsCent() - fec.getDebitAsCent())/100
+                            if len(a) > month:
+                                a[month] = float(a[month]) + float(fec.getCreditAsCent() - fec.getDebitAsCent())/100
 
         # Add subtotals lines
         last_group = None
@@ -447,6 +622,12 @@ class AccountingService:
 
         # Round all values (prettier)
         data_with_group_rounded = [[(round(value) if type(value) is float else value) for value in line] for line in data_with_group]
+
+        # Hide lines with only 0.0 value
+        data_with_group_rounded = [
+            line for line in data_with_group_rounded
+            if any(not isinstance(v, (int, float)) for v in line[2:]) or any(v != 0 for v in line[2:])
+        ]
 
         def color_row(row: List[Any], i: int) -> List[Any]:
             if len(row[0]) == 1 or "===" in row[0] or "+" in row[0]:
@@ -507,6 +688,11 @@ class AccountingService:
             else:
                 fec_dict[fec.EcritureNum] = [fec]
 
+            # Check if account should be reconciliated
+            if any(fec.CompteNum.startswith(prefix) for prefix in ["411", "401"]):
+                if not fec.EcritureLet or fec.EcritureLet.strip() == "":
+                    logging.warning(f"Record {fec.EcritureNum} ({fec.EcritureLib}) on account {fec.CompteNum} is not reconciliated")
+
         # Reconciliation balance
         amount_per_reconciliation: Dict[str, int] = {}
         for fec in self.fec_records:
@@ -520,7 +706,6 @@ class AccountingService:
             if amount != 0:
                 logging.error(f"Reconcialiation {reconcialiation} is not balanced : {amount}")
 
-        # Check carry forward balance
         if carry_forward != 0:
             logging.error(f"Unbalanced carry forward balance : {carry_forward}")
 
@@ -529,6 +714,11 @@ class AccountingService:
             if sum([fec.getCreditAsCent() for fec in fec_list]) != sum([fec.getDebitAsCent() for fec in fec_list]):
                 logging.error(f"Operation {num} is not balanced")
 
+        # Check for PR journal operations (Prévisionnel annuel)
+        pr_ops = [fec.getCreditAsCent() - fec.getDebitAsCent() for fec in self.fec_records if fec.JournalCode == "PR"]
+        if len(pr_ops) > 0:
+            logging.warning(f"Final FEC contains {len(pr_ops)} operations in 'PR' (Prévisionnel) journal.")
+
     def addSocialTaxesProvision(self) -> None:
         end_date = datetime.strptime(str(self.end_date), "%Y-%m-%d")
 
@@ -536,7 +726,7 @@ class AccountingService:
         madelin_total_cent = 0
         for fec_record in self.fec_records:
             # Already paid
-            if fec_record.CompteNum == "646":
+            if fec_record.CompteNum[0:3] == "646":
                 mandatory_total_cent -= fec_record.getDebitAsCent() - fec_record.getCreditAsCent()
 
             # Should have been paid
@@ -547,51 +737,67 @@ class AccountingService:
                 if datetime.strptime(fec_record.EcritureDate, "%Y%m%d") < datetime.strptime("20240731", "%Y%m%d"):
                     tax_rate = 0.167
 
-                if fec_record.CompteNum != "64114":
-                    mandatory_total_cent += round(float(fec_record.getDebitAsCent() - fec_record.getCreditAsCent()) * tax_rate)
-                else:
+                if fec_record.CompteNum == "64114":
                     madelin_total_cent += round(float(fec_record.getDebitAsCent() - fec_record.getCreditAsCent()) * tax_rate)
+                else:
+                    mandatory_total_cent += round(float(fec_record.getDebitAsCent() - fec_record.getCreditAsCent()) * tax_rate)
 
         if madelin_total_cent > 167400:
             mandatory_total_cent += madelin_total_cent - 167400
             madelin_total_cent = 167400
 
-        num = self._getNextOpCounter(None)
-        self.fec_records.append(FecRecord(
-            when=end_date,
-            label="Provision URSSAF TNS",
-            journal=self.journal_db.get_by_code('OD'),
-            account=self.leadger_account_db.get_by_code_or_fail('157'),
-            evidence=None,
-            credit_cent=mandatory_total_cent + madelin_total_cent,
-            debit_cent=0,
-            ecriture_num=num,
-            ecriture_rec=None
-        ))
+        if mandatory_total_cent != 0:
 
-        self.fec_records.append(FecRecord(
-            when=end_date,
-            label="Provision cotisation sociales exploitant",
-            journal=self.journal_db.get_by_code('OD'),
-            account=self.leadger_account_db.get_by_code_or_fail('6815'),
-            evidence=None,
-            credit_cent=0,
-            debit_cent=mandatory_total_cent,
-            ecriture_num=num,
-            ecriture_rec=None
-        ))
+            num = self._getNextOpCounter(None)
+            self.fec_records.append(FecRecord(
+                when=end_date,
+                label="Provision URSSAF TNS",
+                journal=self.journal_db.get_by_code('OD'),
+                account=self.leadger_account_db.get_by_code_or_fail('4386'),
+                evidence=None,
+                credit_cent=mandatory_total_cent,
+                debit_cent=0,
+                ecriture_num=num,
+                ecriture_rec=None
+            ))
 
-        self.fec_records.append(FecRecord(
-            when=end_date,
-            label="Provision URSSAF TNS",
-            journal=self.journal_db.get_by_code('OD'),
-            account=self.leadger_account_db.get_by_code_or_fail('646100'),
-            evidence=None,
-            credit_cent=0,
-            debit_cent=madelin_total_cent,
-            ecriture_num=num,
-            ecriture_rec=None
-        ))
+            self.fec_records.append(FecRecord(
+                when=end_date,
+                label="Provision cotisation sociales exploitant",
+                journal=self.journal_db.get_by_code('OD'),
+                account=self.leadger_account_db.get_by_code_or_fail('64611'),
+                evidence=None,
+                credit_cent=0,
+                debit_cent=mandatory_total_cent,
+                ecriture_num=num,
+                ecriture_rec=None
+            ))
+
+        if madelin_total_cent != 0:
+
+            self.fec_records.append(FecRecord(
+                when=end_date,
+                label="Provision URSSAF TNS",
+                journal=self.journal_db.get_by_code('OD'),
+                account=self.leadger_account_db.get_by_code_or_fail('43861'),
+                evidence=None,
+                credit_cent=madelin_total_cent,
+                debit_cent=0,
+                ecriture_num=num,
+                ecriture_rec=None
+            ))
+
+            self.fec_records.append(FecRecord(
+                when=end_date,
+                label="Provision URSSAF TNS",
+                journal=self.journal_db.get_by_code('OD'),
+                account=self.leadger_account_db.get_by_code_or_fail('6461'),
+                evidence=None,
+                credit_cent=0,
+                debit_cent=madelin_total_cent,
+                ecriture_num=num,
+                ecriture_rec=None
+            ))
 
     def getNbMonths(self) -> int:
         end_date = datetime.strptime(str(self.end_date), "%Y-%m-%d")

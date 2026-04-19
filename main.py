@@ -26,6 +26,9 @@ def run() -> None:
     # Accounting service
     accounting_service = AccountingService(siren, accounting_period_start_date, accounting_period_end_date)
 
+    # Opens accounts (new fiscal year)
+    accounting_service.generateRAN()
+
     # Handles client invoices and credit notes
     invoices = qonto.getClientInvoices(accounting_period_start_date, accounting_period_end_date)
     accounting_service.addInvoices(invoices)
@@ -50,6 +53,9 @@ def run() -> None:
 
     # Saves accounting work to disk
     accounting_service.save()
+
+    # Export evidence files from Qonto to the export directory
+    accounting_service.exportEvidences(qonto)
 
 
 if __name__ == "__main__":

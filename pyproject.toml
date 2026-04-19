@@ -12,7 +12,8 @@ version = "0.0.1"
 
 dependencies = [
     "python-dotenv",
-    "pytz"]
+    "pytz",
+    "tqdm"]
 
 [project.optional-dependencies]
 devel = [

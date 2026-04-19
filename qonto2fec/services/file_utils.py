@@ -19,7 +19,8 @@ def save_dict_to_csv(data: List[Dict[str, Any]], name: str, escape: bool = True)
 
     count = len(data)
     if count == 0:
-        raise ValueError(f"{file_path} can't be successfully saved, no content")
+        logging.warning(f"{file_path} can't be successfully saved, no content")
+        return
 
     quoting_mode = csv.QUOTE_MINIMAL if escape else csv.QUOTE_NONE
     with open(file_path, "w", newline="") as csvFile:

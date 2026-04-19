@@ -1,7 +1,9 @@
-from typing import NamedTuple
+from dataclasses import dataclass
+from typing import Dict, Optional
 
 
-class Evidence(NamedTuple):
+@dataclass
+class Evidence:
     """Represents a document serving as evidence to validate the legitimacy of an expense or revenue.
 
     This class holds information about the evidence document's number, source, date and reference
@@ -19,8 +21,20 @@ class Evidence(NamedTuple):
     """A unique reference identifier for the document within the source system,
     which allows for precise retrieval and verification of the evidence (e.g., file name or database record ID)."""
 
+    source_path: Optional[str]
+    """ The path if known of the document in the evidence export directory """
+
     when: str
     """The date when the evidence was recorded, created or received in the source system (format %Y%m%d)"""
 
     def _str(self) -> str:
         return f"{self.number:05d}"
+
+    def _asdict(self) -> Dict[str, str]:
+        return {
+            "number": str(self.number),
+            "source": self.source,
+            "source_reference": self.source_reference,
+            "source_path": self.source_path if self.source_path else "",
+            "when": self.when
+        }

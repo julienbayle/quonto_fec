@@ -88,6 +88,9 @@ class FecRecord:
         self.Montantdevise = None
         self.Idevise = None
 
+        if journal.code == "AN":
+            self.ValidDate = when.strftime("%Y%m%d")
+
     def __str__(self) -> str:
         return str(self._asdict())
 
@@ -97,7 +100,7 @@ class FecRecord:
             return f"{str(amount)[:-2]},{str(amount)[-2:]}"
         elif -10 <= amount < -100:
             return f"-0,{abs(amount)}"
-        elif 0 < amount < 10:
+        elif 0 < amount < -10:
             return f"-0,0{abs(amount)}"
         elif amount == 0:
             return "0,00"
@@ -119,13 +122,19 @@ class FecRecord:
         return FecRecord.frenchFecFormatToCent(self.Debit)
 
     def _asdict(self) -> Dict[str, str]:
+        lib = self.CompteLib
+        if self.CompteNum[0:3] == "401":
+            lib = "Fournisseur"
+        if self.CompteNum[0:3] == "411":
+            lib = "Client"
+
         return {
             "JournalCode": self.JournalCode,
             "JournalLib": self.JournalLib,
             "EcritureNum": self.EcritureNum,
             "EcritureDate": self.EcritureDate,
             "CompteNum": self.CompteNum,
-            "CompteLib": self.CompteLib,
+            "CompteLib": lib,
             "CompAuxNum": "" if not self.CompAuxNum else self.CompAuxNum,
             "CompAuxLib": "" if not self.CompAuxLib else self.CompAuxLib,
             "PieceRef": self.PieceRef,
@@ -139,3 +148,27 @@ class FecRecord:
             "Montantdevise": "" if not self.Montantdevise else self.Montantdevise,
             "Idevise": "" if not self.Idevise else self.Idevise,
         }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, str]) -> 'FecRecord':
+        """Creates a FecRecord instance from a dictionary."""
+        instance = cls.__new__(cls)
+        instance.JournalCode = data.get("JournalCode", "")
+        instance.JournalLib = data.get("JournalLib", "")
+        instance.EcritureNum = data.get("EcritureNum", "")
+        instance.EcritureDate = data.get("EcritureDate", "")
+        instance.CompteNum = data.get("CompteNum", "")
+        instance.CompteLib = data.get("CompteLib", "")
+        instance.CompAuxNum = data.get("CompAuxNum")
+        instance.CompAuxLib = data.get("CompAuxLib")
+        instance.PieceRef = data.get("PieceRef", "")
+        instance.PieceDate = data.get("PieceDate", "")
+        instance.EcritureLib = data.get("EcritureLib", "")
+        instance.Debit = data.get("Debit", "0,00")
+        instance.Credit = data.get("Credit", "0,00")
+        instance.EcritureLet = data.get("EcritureLet")
+        instance.DateLet = data.get("DateLet")
+        instance.ValidDate = data.get("ValidDate", "")
+        instance.Montantdevise = data.get("Montantdevise")
+        instance.Idevise = data.get("Idevise")
+        return instance
