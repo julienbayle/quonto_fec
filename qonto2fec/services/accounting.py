@@ -66,7 +66,7 @@ class AccountingService:
         self.leadger_account_db.save()
 
     def exportEvidences(self, qonto_client: Any) -> None:
-        self.evidence_db.download_evidences(qonto_client)
+        self.evidence_db.download_evidences(qonto_client, self.start_date)
         self.evidence_db.save()
 
     def addInvoices(self, invoices: List[Invoice]) -> None:
@@ -248,7 +248,7 @@ class AccountingService:
             partial_match_amount = 0
             partial_match_fec_records: List[FecRecord] = []
             for fec_record in self.fec_records:
-                if invoice_fec_found:
+                if invoice_fec_found or fec_record.CompteNum[0:3] != "411":
                     continue
 
                 # Already reconciliated or previously created bank record
@@ -258,18 +258,16 @@ class AccountingService:
                 amount_match = fec_record.getDebitAsCent() == amount_to_match and fec_record.getCreditAsCent() == 0
                 attachment_match = \
                     (fec_record.PieceRef != '' and fec_record.PieceRef == bank_fec_record.PieceRef) \
-                    or (fec_record.EcritureLib != '' and fec_record.EcritureLib in bank_fec_record.EcritureLib)
+                    or (fec_record.EcritureLib != '' and fec_record.EcritureLib.strip() in bank_fec_record.EcritureLib)
 
-                if fec_record.getDebitAsCent() < amount_match and attachment_match:
+                if fec_record.getDebitAsCent() < amount_to_match and attachment_match:
                     partial_match_amount += fec_record.getDebitAsCent()
                     partial_match_fec_records.append(fec_record)
-                    print("Partial match")
-                    print(bank_fec_record)
-                    print(fec_record)
+                    mp = int(100*partial_match_amount/amount_to_match)
+                    logging.info(f"Partial match {fec_record.EcritureLib} with {bank_fec_record.EcritureLib} ({fec_record.getDebitAsCent()})/{mp}%")
 
-                if partial_match_amount == amount_to_match:
-                    print("Partial match now full")
-                    amount_match = True
+                    if partial_match_amount == amount_to_match:
+                        amount_match = True
 
                 if amount_match and attachment_match:
                     invoice_fec_found = True
@@ -318,7 +316,8 @@ class AccountingService:
 
             if not invoice_fec_found:
                 print(transaction)
-                raise Exception(f"Invoice not found in accounting : {transaction.thirdparty_name} {transaction.when} {bank_fec_record.EcritureLib}")
+                ref = f"{transaction.thirdparty_name} {transaction.when} {bank_fec_record.EcritureLib}"
+                logging.error(f"Invoice(s) not found in accounting for this bank transaction: {ref}")
 
         # Financial investment
         elif "Virement interne" in transaction.reference:
@@ -413,6 +412,19 @@ class AccountingService:
                         num = self._getNextOpCounter(transaction.when)
                         self._createFecRecordFromBankTransaction(transaction, "BQ", "512", amount, 0, num)
                         self._createFecRecordFromBankTransaction(transaction, "BQ", "4011", 0, amount, num, rec)
+
+                    # Expenses (refund)
+                    elif account.code[0:1] == "6" and transaction.amount_excluding_vat > 0:
+                        amount = abs(transaction.amount_excluding_vat) + abs(transaction.vat)
+                        rec = self._getNextReconciliation()
+                        num = self._getNextOpCounter(transaction.when)
+                        self._createFecRecordFromBankTransaction(transaction, "AC", "4011", 0, amount, num, rec)
+                        self._createFecRecordFromBankTransaction(transaction, "AC", account.code, abs(transaction.amount_excluding_vat), 0, num)
+                        if transaction.vat != 0:
+                            self._createFecRecordFromBankTransaction(transaction, "AC", "445661", 0, -1 * abs(transaction.vat), num)
+                        num = self._getNextOpCounter(transaction.when)
+                        self._createFecRecordFromBankTransaction(transaction, "BQ", "512", 0, amount, num)
+                        self._createFecRecordFromBankTransaction(transaction, "BQ", "4011", amount, 0, num, rec)
 
         if len(transaction.fec_records) == 0:
             raise RuntimeError(f"Transaction not supported yet, please create new rules or update configuration : {transaction}")

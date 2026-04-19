@@ -38,12 +38,12 @@ class EvidenceDB:
     def save(self) -> None:
         save_dict_to_csv([d._asdict() for d in self.evidences], self.db_name, False)
 
-    def download_evidences(self, qonto_client: Any) -> None:
+    def download_evidences(self, qonto_client: Any, start_date: str) -> None:
         """
         Download and save evidence files to the export directory
         """
-        if not os.path.exists("./export/EVIDENCES/"):
-            os.makedirs("./export/EVIDENCES/")
+        if not os.path.exists(f"./export/EVIDENCES_{start_date.replace('-', '')}/"):
+            os.makedirs(f"./export/EVIDENCES_{start_date.replace('-', '')}/")
 
         logging.info(f"Exporting evidences")
         for evidence in tqdm(self.evidences, desc="Downloading evidences", unit="file"):
@@ -52,7 +52,7 @@ class EvidenceDB:
                     info = qonto_client.getAttachmentInfo(evidence.source_reference)
                     url = info["url"]
                     file_name = f"{evidence.number:05d}-{info['file_name']}"
-                    file_path = f"./export/EVIDENCES/{file_name}"
+                    file_path = f"./export/EVIDENCES_{start_date.replace('-', '')}/{file_name}"
 
                     if not os.path.exists(file_path):
                         logging.debug(f"Downloading evidence {evidence.number} from {evidence.source_reference}...")
