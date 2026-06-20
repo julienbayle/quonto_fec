@@ -12,7 +12,8 @@ class LedgerAccountDB:
     db_name: str
 
     def __init__(self, db_name: str) -> None:
-        self.accounts = [LedgerAccount(**a) for a in read_dict_from_csv(db_name)]
+        db_path = f"./config/{db_name.replace('/', '').replace('-', '')}.txt"
+        self.accounts = [LedgerAccount(**a) for a in read_dict_from_csv(db_path)]
         self.loadDefaultAccounts()
 
         self.db_name = db_name

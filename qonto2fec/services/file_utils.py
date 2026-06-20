@@ -37,7 +37,9 @@ def read_dict_from_csv(name: str, escape: bool = True) -> List[Dict[str, Any]]:
     Reads python dict values from a CSV file available in the export subfolder
     """
     data = []
-    file_path = f"./export/{name.replace('/', '').replace('-','')}.txt"
+    file_path = name
+    if "/" not in name:
+        file_path = f"./export/{name.replace('/', '').replace('-', '')}.txt"
     if os.path.exists(file_path):
         quoting_mode = csv.QUOTE_MINIMAL if escape else csv.QUOTE_NONE
         with open(file_path, "r", newline="") as csvFile:
